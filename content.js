@@ -28,18 +28,18 @@ const KNOWN_NPCS = ["pete", "peggy", "bert", "betty", "guria", "raven", "tinker"
 function findElementByText(selector, text) {
     const elements = document.querySelectorAll(selector);
     const targetText = text.toLowerCase();
-    
+
     return Array.from(elements).find(el => {
         const content = el.textContent.trim().toLowerCase();
         if (!content.includes(targetText)) return false;
-        
+
         // LOẠI TRỪ UI: Không lấy các phần tử nằm trong Bảng Codex hoặc Dialog (trừ khi chính nó là mục tiêu)
         const isUI = el.closest('.fixed, [role="dialog"], .bg-brown-600, .bg-blue-600');
         // Nếu chúng ta đang tìm modal "Go Home", thì ĐƯỢC PHÉP tìm trong UI
         if (targetText.includes('home') || targetText.includes('go home') || targetText.includes('return')) {
             return true;
         }
-        
+
         if (isUI) return false;
         return true;
     });
@@ -94,8 +94,8 @@ async function moveCharacter(direction, duration = 500) {
     if (direction === 'left') currentX -= distance;
     if (direction === 'right') currentX += distance;
 
-    console.log(`🚀 [COORD]: X: ${Math.round(currentX)} | Y: ${Math.round(currentY)} | Dir: ${direction.toUpperCase()}`);
-    
+    // console.log(`🚀 [COORD]: X: ${Math.round(currentX)} | Y: ${Math.round(currentY)} | Dir: ${direction.toUpperCase()}`);
+
     document.body.focus();
     const targets = [window, document, ...Array.from(document.querySelectorAll('canvas'))];
 
@@ -109,18 +109,18 @@ async function moveCharacter(direction, duration = 500) {
     clearInterval(interval);
     const upParams = { key, code: key, keyCode, which: keyCode, bubbles: true, cancelable: true, view: window };
     targets.forEach(t => t.dispatchEvent(new KeyboardEvent('keyup', upParams)));
-    
-    await sleep(50); 
+
+    await sleep(50);
 }
 
 // RESET TO CORNER (Adaptive with Modal Detection)
 async function resetToCorner() {
     console.log("📐 [RESET]: Đang di chuyển về góc (Hiệu chuẩn 0-0)...");
-    
+
     // 1. Move DOWN until boundary modal appears
     for (let i = 0; i < 40; i++) { // Max 40 steps to prevent infinite loops
-        const modal = findElementByText('h1, h2, span, p, button, div', 'Go Home') || 
-                      findElementByText('h1, h2, span, p, button, div', 'Return Home');
+        const modal = findElementByText('h1, h2, span, p, button, div', 'Go Home') ||
+            findElementByText('h1, h2, span, p, button, div', 'Return Home');
         if (modal) {
             console.log("🌊 [HỆ THỐNG]: Đã chạm biên DƯỚI.");
             break;
@@ -128,15 +128,15 @@ async function resetToCorner() {
         await moveCharacter('down', 500);
         if (!isRunning && !isRecording) return;
     }
-    
+
     // Clear Modal
     let modalBtn = document.querySelector('img[src*="close"]') || findElementByText('button, span', 'Go Home') || findElementByText('button, span', 'Return Home');
     if (modalBtn) { modalBtn.click(); await sleep(1000); }
 
     // 2. Move RIGHT until boundary modal appears
     for (let i = 0; i < 40; i++) {
-        const modal = findElementByText('h1, h2, span, p, button, div', 'Go Home') || 
-                      findElementByText('h1, h2, span, p, button, div', 'Return Home');
+        const modal = findElementByText('h1, h2, span, p, button, div', 'Go Home') ||
+            findElementByText('h1, h2, span, p, button, div', 'Return Home');
         if (modal) {
             console.log("🌊 [HỆ THỐNG]: Đã chạm biên PHẢI.");
             break;
@@ -153,16 +153,16 @@ async function resetToCorner() {
     // ZERO THE COORDINATES
     currentX = 0;
     currentY = 0;
-    
+
     console.log("✅ [RESET]: Đã về góc 0-0. Hệ tọa độ đã được hiệu chuẩn!");
-    currentTask = "RECORD"; 
+    currentTask = "RECORD";
 }
 
 // MOVE TO COORDINATE (Targeted Navigation)
 async function moveToCoord(targetX, targetY) {
     const dx = targetX - currentX;
     const dy = targetY - currentY;
-    
+
     console.log(`🎯 [NAV]: Moving to (${Math.round(targetX)}, ${Math.round(targetY)}) | Delta: [${Math.round(dx)}, ${Math.round(dy)}]`);
 
     // Move X first
@@ -171,7 +171,7 @@ async function moveToCoord(targetX, targetY) {
         const duration = Math.abs(dx) / (BASE_SPEED * (memory.speedMultiplier || 1.0));
         await moveCharacter(dir, duration);
     }
-    
+
     // Move Y second
     if (Math.abs(dy) > 1) {
         const dir = dy > 0 ? 'down' : 'up';
@@ -182,7 +182,7 @@ async function moveToCoord(targetX, targetY) {
 
 // Execute path to NPC (ULTRA MODE: Direct Link Engine-to-Engine)
 async function executePathToNPC(npcData) {
-    // 🛡️ SENSOR GRACE PERIOD: Thử lại 10 lần (~2 giây) nếu mất kết nối tạm thời
+    // 🛡️ SENSOR GRACE PERIOD: Đợi 2 giây nếu mất kết nối
     let data = null;
     for (let i = 0; i < 10; i++) {
         data = getGameData();
@@ -190,42 +190,30 @@ async function executePathToNPC(npcData) {
         await sleep(200);
     }
 
-    const rawName = targetNPC || document.getElementById('npc-select').value || "";
-    const npcName = rawName.toLowerCase().trim();
-    
-    const custom = memory.npcs[npcName];
-    const isValidCustom = custom && custom.x !== undefined && custom.y !== undefined;
-    const liveNPC = findNPCInState(npcName);
-    const target = liveNPC || (isValidCustom ? custom : null) || npcData;
+    const npcName = (targetNPC || "").toLowerCase().trim();
+    if (!npcName) return false;
 
-    if (!target || target.x === undefined || target.y === undefined) {
-        console.error(`❌ [LỖI]: Không tìm thấy tọa độ hợp lệ cho ${npcName}.`, target);
-        // Cú chót: Tìm lại trong Master Data toàn cục
-        for (const isl in MASTER_NPC_DATA) {
-            if (MASTER_NPC_DATA[isl][npcName]) {
-                const fallback = MASTER_NPC_DATA[isl][npcName];
-                console.log(`📡 [TỌA ĐỘ]: Đã tìm thấy ${npcName.toUpperCase()} trong Master Data: (${Math.round(fallback.x)}, ${Math.round(fallback.y)})`);
-                await moveTowardsTarget(fallback.x, fallback.y);
-                return true;
-            }
-        }
+    // --- CHẾ ĐỘ SET CỨNG (SFL-NAV 2024) ---
+    // User muốn dùng tọa độ cố định từ MASTER_NPC_DATA để làm kim chỉ nam tuyệt đối
+    const custom = memory.npcs[npcName];
+    const master = (MASTER_NPC_DATA[targetIsland] || MASTER_NPC_DATA["plaza"] || {})[npcName];
+
+    // Ưu tiên tọa độ Master (đã được user set cứng) > Bộ nhớ tạm
+    const target = master || (custom && custom.x !== undefined ? custom : null);
+
+    if (!target || target.x === undefined) {
+        console.error(`❌ [LỖI]: Không tìm thấy tọa độ "cứng" cho ${npcName.toUpperCase()}.`);
         return false;
     }
 
-    // IN TỌA ĐỘ ĐỂ USER CHECK
-    console.log(`📡 [TỌA ĐỘ BETA]: Mục tiêu ${npcName.toUpperCase()} tại (${Math.round(target.x)}, ${Math.round(target.y)})`);
+    console.log(`📡 [PLAZA-NAV]: Đang di chuyển ${npcName.toUpperCase()} -> Tọa độ mục tiêu: (${Math.round(target.x)}, ${Math.round(target.y)})`);
 
-    // A. CHẾ ĐỘ ENGINE LINK (BỎ QUA RESET TƯỜNG)
     if (data && data.player) {
-        console.log(`🚀 [DIRECT LINK]: Đang di chuyển tới ${npcName.toUpperCase()}...`);
         await moveTowardsTarget(target.x, target.y);
-        console.log("🎯 [HỆ THỐNG]: Đã tới đích bằng Engine GPS!");
+        console.log(`🎯 [TỚI ĐÍCH]: Đã chạm vùng tương tác của ${npcName.toUpperCase()}.`);
         return true;
     }
 
-    // B. CHẾ ĐỘ FALLBACK (Chỉ dùng khi mất kết nối thật sự > 2 giây)
-    console.warn("⚠️ [HỆ THỐNG]: Mất kết nối Engine. Bot đang TẠM DỪNG để chờ đồng bộ lại thay vì lùi về...");
-    // Thay vì gọi resetToCorner(), chúng ta trả về false để loop chính quay lại bước WAIT_SYNC
     return false;
 }
 
@@ -272,7 +260,7 @@ async function moveTowardsTarget(tx, ty) {
         // Nếu bị kẹt trên trục chính, thử chuyển sang trục phụ 1 lúc để "lách" qua
         if (stuckCount > 3) {
             console.warn(`🧱 [VẬT CẢN]: Đang lách qua NPC/Vật cản bằng hướng ${secondaryDir.toUpperCase()}...`);
-            await moveCharacter(secondaryDir, 350); 
+            await moveCharacter(secondaryDir, 350);
             stuckCount = 0; // Reset để thử lại trục chính
             continue;
         }
@@ -286,37 +274,47 @@ async function moveTowardsTarget(tx, ty) {
 // Conversion: 1s walk = 100 points
 const MASTER_NPC_DATA = {
     "plaza": {
-        "pete": {"x": -1000, "y": -500, "island": "plaza"},
-        "peggy": {"x": -1200, "y": -400, "island": "plaza"},
-        "bert": {"x": -400, "y": -800, "island": "plaza"},
-        "betty": {"x": -600, "y": -820, "island": "plaza"},
-        "hank": {"x": -700, "y": -900, "island": "plaza"},
-        "guria": {"x": -1000, "y": -1000, "island": "plaza"},
-        "raven": {"x": 200, "y": -1000, "island": "plaza"}
+        "pete": { "x": -1000, "y": -500, "island": "plaza" },
+        "peggy": { "x": 203, "y": 394, "island": "plaza" },
+        "bert": { "x": -400, "y": -800, "island": "plaza" },
+        "tywin": { "x": -150, "y": 100, "island": "plaza" },
+        "raven": { "x": 200, "y": -1000, "island": "plaza" },
+        "cornwell": { "x": 0, "y": 0, "island": "plaza" },
+        "tinker": { "x": 500, "y": -1000, "island": "plaza" },
+        "betty": { "x": 532, "y": 98, "island": "plaza" },
+        "blacksmith": { "x": -800, "y": -500, "island": "plaza" },
+        "grimbly": { "x": 0, "y": -800, "island": "plaza" },
+        "timmy": { "x": 0, "y": 0, "island": "plaza" },
+        "grimtooth": { "x": 0, "y": 0, "island": "plaza" }
     },
     "beach": {
-        "corale": {"x": -350, "y": 120, "island": "beach"},
-        "old salty": {"x": -400, "y": 0, "island": "beach"},
-        "stella": {"x": 500, "y": 0, "island": "beach"},
-        "finn": {"x": 250, "y": -80, "island": "beach"},
-        "pharaoh": {"x": -500, "y": -300, "island": "beach"}
+        "corale": { "x": -350, "y": 120, "island": "beach" },
+        "tango": { "x": 0, "y": 0, "island": "beach" },
+        "old salty": { "x": -400, "y": 0, "island": "beach" },
+        "miranda": { "x": 0, "y": 0, "island": "beach" },
+        "pharaoh": { "x": -500, "y": -300, "island": "beach" },
+        "finn": { "x": 250, "y": -80, "island": "beach" },
+        "finley": { "x": 0, "y": 0, "island": "beach" }
     },
     "kingdom": {
-        "eldric": {"x": -250, "y": -150, "island": "kingdom"},
-        "reginald": {"x": 250, "y": -150, "island": "kingdom"},
-        "gambit": {"x": 250, "y": 150, "island": "kingdom"},
-        "victoria": {"x": 0, "y": -300, "island": "kingdom"},
-        "tywin": {"x": -150, "y": 100, "island": "kingdom"}
+        "gambit": { "x": 250, "y": 150, "island": "kingdom" },
+        "jester": { "x": 0, "y": 0, "island": "kingdom" },
+        "victoria": { "x": 0, "y": -300, "island": "kingdom" }
+    },
+    "retreat": {
+        "guria": { "x": -500, "y": -500, "island": "retreat" },
+        "grubnuk": { "x": 0, "y": 0, "island": "retreat" },
+        "gordo": { "x": 0, "y": 0, "island": "retreat" }
     }
 };
 
 async function scanDeliveries() {
     console.log("--- 🕵️ QUÁET GIAO HÀNG ---");
-    
+
     // 1. Phá bỏ các bảng sai trước khi quét
-    const wrongModal = findElementByText('h1, h2, span', 'Calendar') || 
-                      findElementByText('h1, h2, span', 'Events');
-                      
+    const wrongModal = findElementByText('h1, h2, span', 'Calendar') ||
+        findElementByText('h1, h2, span', 'Events');
+
     if (wrongModal) {
         console.log("⚠️ Phát hiện bảng SAI (Lịch/Sự kiện). Đang thoát...");
         const closeBtn = document.querySelector('img[src*="close"]') || document.querySelector('button[class*="close"]');
@@ -332,11 +330,11 @@ async function scanDeliveries() {
         const text = el.textContent.toLowerCase();
         return text.includes('sunflower land codex') || text.includes('deliveries');
     });
-    
+
     if (!codexTitle) {
         // --- 📊 LOGIC NHẬN DIỆN HÌNH ẢNH "VÀNG" (PLAN D) ---
         console.log("🔍 Đang quét biểu tượng Giao hàng theo Kích thước (31.5px)...");
-        
+
         const allImages = Array.from(document.querySelectorAll('img'));
         let targetImg = allImages.find(img => {
             const rect = img.getBoundingClientRect();
@@ -344,7 +342,7 @@ async function scanDeliveries() {
             // Lịch (Calendar) chỉ rộng 26.25px
             const isCorrectWidth = Math.abs(rect.width - 31.5) < 1;
             const isSidebarZone = rect.left > 50 && rect.left < 150;
-            
+
             if (isCorrectWidth && isSidebarZone) {
                 console.log(`🎯 PHÁT HIỆN: Kích thước ${rect.width.toFixed(2)}px tại Left ${rect.left.toFixed(1)}px`);
                 return true;
@@ -375,28 +373,28 @@ async function scanDeliveries() {
     console.log("✅ Codex đã mở. Đang quét biểu tượng TRÁI TIM (Đơn sẵn sàng)...");
     const readyItems = [];
     const gridItems = document.querySelectorAll('.grid > div');
-    
+
     for (const item of gridItems) {
         // NHẬN DIỆN TIM ĐỎ: Theo đúng cấu HTML bạn cung cấp
         // Chỉ những thẻ <img> có đúng bộ class này mới là Trái tim Friendship
-        const heartIcon = item.querySelector('img.absolute.top-0\\.5.right-0\\.5.w-3') || 
-                          item.querySelector('img.absolute.top-0\\.5.right-0\\.5.sm\\:w-4');
-        
+        const heartIcon = item.querySelector('img.absolute.top-0\\.5.right-0\\.5.w-3') ||
+            item.querySelector('img.absolute.top-0\\.5.right-0\\.5.sm\\:w-4');
+
         if (heartIcon) {
             console.log("❤️ PHÁT HIỆN: Trái tim đỏ Giao hàng!");
             // Click vào chính thẻ cha chứa trái tim (thường là thẻ div có cursor-pointer)
             heartIcon.parentElement.click();
-            
+
             // Đợi 2s để bảng thông tin bên phải cập nhật hoàn toàn
             await sleep(2000);
-            
+
             // QUÉT TÊN NPC TỪ PHẦN CHI TIẾT CỦA BẢNG (Bên phải)
-            const detailPanel = document.querySelector('.flex.flex-col.items-center.p-2') || 
-                               document.querySelector('.flex-1.flex.flex-col') ||
-                               document.querySelector('[role="dialog"]');
-            
+            const detailPanel = document.querySelector('.flex.flex-col.items-center.p-2') ||
+                document.querySelector('.flex-1.flex.flex-col') ||
+                document.querySelector('[role="dialog"]');
+
             const panelText = detailPanel ? detailPanel.textContent || "" : "";
-            
+
             let npcName = "";
             console.log("📄 Đang quét tên NPC trong bảng chi tiết...");
             for (const name of KNOWN_NPCS) {
@@ -410,7 +408,7 @@ async function scanDeliveries() {
             if (npcName) {
                 readyItems.push(npcName);
                 console.log(`✅ Đã nhận diện đúng NPC: ${npcName.toUpperCase()}`);
-                
+
                 // [NÂNG CẤP]: Cập nhật tọa độ LIVE ngay khi vừa chốt đơn
                 const livePos = findNPCInState(npcName);
                 if (livePos) {
@@ -418,9 +416,9 @@ async function scanDeliveries() {
                     memory.npcs[npcName] = { ...livePos, island: targetIsland || "plaza" };
                     saveMemory();
                 }
-                
+
                 // [NÂNG CẤP]: Chỉ chọn 1 đơn hàng đầu tiên rồi đi làm ngay để đảm bảo ổn định 
-                break; 
+                break;
             } else {
                 console.warn("⚠️ KHÔNG nhận diện được NPC trong bảng này. Bỏ qua...");
             }
@@ -430,13 +428,13 @@ async function scanDeliveries() {
     if (readyItems.length > 0) {
         targetNPC = readyItems[0].toLowerCase().trim();
         console.log(`🎯 Mục tiêu: ${targetNPC.toUpperCase()}. Đang đóng Codex để đồng bộ...`);
-        
+
         // 🏁 ĐÓNG CODEX NGAY LẬP TỨC ĐỂ HIỆN HUD VÀ ĐỒNG BỘ FIBER
         const closeBtn = document.querySelector('img[src*="close"]') || document.querySelector('button[class*="close"]');
         if (closeBtn) closeBtn.click();
         else window.dispatchEvent(new MouseEvent('mousedown', { clientX: 10, clientY: 10, bubbles: true }));
-        
-        await sleep(1500); 
+
+        await sleep(1500);
         currentTask = "TRAVEL";
     } else {
         console.log("🧊 Không có đơn hàng nào sẵn sàng. ĐANG ĐÓNG Codex để chờ...");
@@ -446,7 +444,7 @@ async function scanDeliveries() {
         await sleep(1000);
         currentTask = "IDLE";
     }
-    
+
     memory.ready_deliveries = readyItems;
     saveMemory();
 }
@@ -460,11 +458,11 @@ async function travelToIsland(islandName) {
 
     // 1. Tìm nút "Travel to [Island]" trong bảng Codex đang mở
     const travelBtn = findElementByText('.material-button, button', `Travel to ${islandName}`);
-    
+
     if (travelBtn) {
         console.log(`🚢 ĐANG SỬ DỤNG NÚT DI CHUYỂN TRONG GAME: ${islandName.toUpperCase()}...`);
         travelBtn.click();
-        
+
         // Đợi màn hình loading (Nếu có) hoặc chờ nhân vật dịch chuyển
         await sleep(5000);
         currentTask = "MOVE";
@@ -477,63 +475,82 @@ async function travelToIsland(islandName) {
 }
 
 async function interactWithNPC() {
-    console.log(`--- ⌨️ KÍCH HOẠT TƯƠNG TÁC PHÍM (SPACE): ${targetNPC.toUpperCase()} ---`);
-    
-    // 1. ĐẢM BẢO ĐÓNG CODEX TRƯỚC KHI TƯƠNG TÁC (Tránh nhận nhầm bảng UI)
-    const closeBtn = document.querySelector('img[src*="close"], .p-2.cursor-pointer');
-    if (closeBtn) {
-        console.log("🧹 Đang đóng bảng UI để chuẩn bị gọi NPC...");
-        closeBtn.click();
-        await sleep(800);
-    }
+    const name = (targetNPC || "").toUpperCase();
+    console.log(`--- ⌨️ KÍCH HOẠT TƯƠNG TÁC: ${name} ---`);
 
-    for (let attempt = 0; attempt < 8; attempt++) {
+    // 1. Đảm bảo đóng Codex/UI trước khi tương tác
+    const closeBtn = document.querySelector('img[src*="close"], .p-2.cursor-pointer');
+    if (closeBtn) { closeBtn.click(); await sleep(800); }
+
+    for (let attempt = 0; attempt < 10; attempt++) {
         if (!isRunning) return;
 
-        // Thử nhấn phím SPACE để mở hội thoại (Lệnh chuẩn SFL)
-        console.log(`🌀 Đang gọi NPC (Attempt ${attempt + 1})...`);
+        // A. CHIẾN THUẬT 1: CLICK TRỰC TIẾP (DOM-CLICK) - CHUẨN NHẤT
+        // Tìm bất kỳ thẻ nào chứa tên NPC (Không phân biệt hoa thường)
+        const allTags = Array.from(document.querySelectorAll('div, span, p, img'));
+        const npcTag = allTags.find(el => {
+            const text = el.textContent.trim().toUpperCase();
+            return text === name || text === name + " " || text.includes(name + " (");
+        });
+
+        if (npcTag) {
+            console.log(`🎯 [DOM-CLICK]: Đã tìm thấy NameTag của ${name}. Đang Click...`);
+            npcTag.click();
+            // Click thêm lần nữa vào phần tử cha nếu là chữ (nhiều khi chữ không nhận click)
+            if (npcTag.parentElement) npcTag.parentElement.click();
+            await sleep(1000);
+        }
+
+        // B. CHIẾN THUẬT 2: NHẤN PHÍM SPACE (ENGINE-KEY)
+        console.log(`🌀 [SPACE-KEY]: Đang gọi NPC (Lần ${attempt + 1})...`);
         const spaceParams = { key: ' ', code: 'Space', keyCode: 32, which: 32, bubbles: true };
-        window.dispatchEvent(new KeyboardEvent('keydown', spaceParams));
-        document.dispatchEvent(new KeyboardEvent('keydown', spaceParams));
+        const targets = [window, document, ...Array.from(document.querySelectorAll('canvas'))];
+        targets.forEach(t => {
+            try {
+                if (t && typeof t.focus === 'function') t.focus();
+                t.dispatchEvent(new KeyboardEvent('keydown', spaceParams));
+            } catch (e) { }
+        });
         await sleep(100);
-        window.dispatchEvent(new KeyboardEvent('keyup', spaceParams));
-        
+        targets.forEach(t => {
+            try { t.dispatchEvent(new KeyboardEvent('keyup', spaceParams)); } catch (e) { }
+        });
+
         await sleep(1500);
 
-        // KIỂM TRA: Bảng hội thoại của NPC đã mở chưa?
+        // KIỂM TRA: Bảng hội thoại đã mở chưa?
         const deliverBtn = findElementByText('.material-button, button', 'Deliver');
         const dialogOpen = document.querySelectorAll('[role="dialog"]');
-        
-        // CHỈ CHẤP NHẬN NẾU: Không phải bảng Codex (Loại trừ tiêu đề Codex)
+
+        // Loại trừ Codex
         const isRealNPCConversation = Array.from(dialogOpen).some(d => {
             const text = d.textContent.toLowerCase();
             return !text.includes('codex') && !text.includes('deliveries');
         });
 
         if (deliverBtn || isRealNPCConversation) {
-            console.log("✅ Đã mở hội thoại thật thành công!");
+            console.log("✅ [THÀNH CÔNG]: Hội thoại đã mở!");
             if (deliverBtn) {
                 deliverBtn.click();
-                console.log("🎉 XÁC NHẬN GIAO HÀNG!");
+                console.log("🎉 [XÁC NHẬN GIAO HÀNG]!");
                 await sleep(3000);
                 currentTask = "IDLE";
                 return;
             }
-            // Nếu hội thoại đã mở nhưng chưa có nút Deliver (chưa xong hội thoại đầu) 
-            // thì click bất kỳ để skip text
+            // Skip text
             const skipBtn = document.querySelector('.mt-1.flex.justify-end button') || document.querySelector('[role="dialog"]');
             if (skipBtn) skipBtn.click();
             await sleep(1000);
             continue;
         }
 
-        // Nếu nhấn Space không ăn, thử di chuyển nhẹ (jiggle) để thay đổi vị trí
-        console.log("🚧 Đang nhích nhẹ vị trí để bắt sóng NPC...");
+        // C. CHIẾN THUẬT 3: NHÍCH NHẸ (JIGGLE) ĐỂ BẮT SÓNG
+        console.log("🚧 [JIGGLE]: Đang nhích nhẹ để thay đổi góc nhìn...");
         const jiggleDir = ['up', 'down', 'left', 'right'][attempt % 4];
-        await moveCharacter(jiggleDir, 300);
+        await moveCharacter(jiggleDir, 250);
     }
 
-    console.warn("❌ Không thể gọi hội thoại sau nhiều lần thử. Reset.");
+    console.warn("❌ [THẤT BẠI]: Không thể tương tác sau 10 lần thử. Quay lại IDLE.");
     currentTask = "IDLE";
 }
 
@@ -615,9 +632,18 @@ async function mainLoop() {
                 }
                 break;
             case "MOVE":
-                const moveData = (MASTER_NPC_DATA[targetIsland] || MASTER_NPC_DATA["plaza"] || {})[targetNPC];
-                const success = await executePathToNPC(moveData);
-                if (success) currentTask = "DELIVER";
+                // Luôn cập nhật tọa độ mới nhất qua GPS trước khi đi
+                const liveTarget = findNPCInState(targetNPC);
+                const masterData = (MASTER_NPC_DATA[targetIsland] || MASTER_NPC_DATA["plaza"] || {})[targetNPC];
+                const finalTarget = liveTarget || masterData;
+
+                if (finalTarget) {
+                    const success = await executePathToNPC(finalTarget);
+                    if (success) currentTask = "DELIVER";
+                } else {
+                    console.warn(`❌ [MOVE]: Không tìm thấy tọa độ cho ${targetNPC}. Quay lại quét đơn...`);
+                    currentTask = "IDLE";
+                }
                 break;
             case "DELIVER":
                 await interactWithNPC();
@@ -648,7 +674,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 let latestEngineData = null;
 window.addEventListener("message", (event) => {
     if (event.data && event.data.type === "SFL_OMNI_PULSE") {
-        if (!latestEngineData) console.log("📥 [BOT]: ✅ Nhận tín hiệu Omni-Pulse lần đầu!");
+        // if (!latestEngineData) console.log("📥 [BOT]: ✅ Nhận tín hiệu Omni-Pulse lần đầu!");
         latestEngineData = { player: event.data.player };
     }
 });
@@ -656,7 +682,7 @@ window.addEventListener("message", (event) => {
 async function loop() {
     while (isRunning) {
         await mainLoop();
-        await sleep(500); 
+        await sleep(500);
     }
 }
 
@@ -672,12 +698,20 @@ setTimeout(() => {
 // INTERNAL ENGINE SENSOR (React Fiber - RADAR-X)
 // INTERNAL ENGINE SENSOR (React Fiber - RADAR-X PRO)
 function getGameData() {
-    // --- ƯU TIÊN 0: DOM-DATA BYPASS (MAIN WORLD BRIDGE) ---
-    // Đây là kênh truyền tin nhanh và ổn định nhất, không bị trình duyệt chặn
+    // --- ƯU TIÊN 0: OMNI-ENTITY GPS (BRIDGE) ---
     const posStr = document.body.dataset.sflPos;
+    const entStr = document.body.dataset.sflEntities;
     if (posStr) {
         const [x, y] = posStr.split(',').map(parseFloat);
-        if (!isNaN(x) && !isNaN(y)) return { player: { x, y } };
+        let entities = {};
+        try { if (entStr) entities = JSON.parse(entStr); } catch (e) { }
+
+        if (!isNaN(x) && !isNaN(y)) {
+            return {
+                player: { x, y },
+                allPlayers: entities
+            };
+        }
     }
 
     // --- ƯU TIÊN 1: POST MESSAGE PULSE ---
@@ -724,22 +758,22 @@ function getGameData() {
                 if (n.sibling) stack.push(n.sibling);
             }
         }
-    } catch (e) {}
+    } catch (e) { }
     return null;
 }
 
 function findNPCInState(npcName) {
     const data = getGameData();
     if (!data || !data.allPlayers) return null;
-    
+
     const players = Object.values(data.allPlayers);
     const npc = players.find(p => p.username && p.username.toLowerCase().includes(npcName.toLowerCase()) && p.username !== "yourbabyboo");
-    
+
     if (npc) {
         // Deep Search tọa độ x, y (Phòng trường hợp nằm trong .body hoặc nested)
         let tx = npc.x, ty = npc.y;
         if (tx === undefined && npc.body) { tx = npc.body.x; ty = npc.body.y; }
-        
+
         // Kiểm tra tính hợp lệ của số
         if (typeof tx === 'number' && typeof ty === 'number' && !isNaN(tx)) {
             return { x: tx, y: ty };
@@ -766,19 +800,19 @@ setInterval(() => {
     if (data && data.player) {
         currentX = data.player.x;
         currentY = data.player.y;
-        
+
         // Cập nhật tọa độ lên UI Radar
         const radarX = document.getElementById('radar_x');
         const radarY = document.getElementById('radar_y');
         if (radarX) radarX.innerText = Math.round(currentX);
         if (radarY) radarY.innerText = Math.round(currentY);
-        
+
         if (syncIndicator) {
             syncIndicator.style.background = '#2ed573'; // Xanh
             syncIndicator.style.boxShadow = '0 0 10px #2ed573';
         }
         lastPulseTime = Date.now();
-    } 
+    }
     else if (activeKey) {
         // DEAD RECKONING MODE
         if (syncIndicator) {
@@ -847,6 +881,9 @@ function injectPremiumUI() {
             <div style="font-size: 26px; font-weight: 800; font-family: monospace; color: #2ed573; text-align: center; margin: 5px 0;">
                 <span id="radar_x">0</span>, <span id="radar_y">0</span>
             </div>
+            <div id="target_npc_disp" style="text-align:center; font-size:10px; color:#FFD700; font-weight:bold; margin-bottom:5px;">
+                MT: ${targetNPC ? targetNPC.toUpperCase() : "KHÔNG CÓ"}
+            </div>
             <div style="display:flex; gap:5px; margin-top:10px;">
                 <input type="number" id="manual_x" value="0" style="flex:1; background:transparent; border:1px solid #333; color:#2ed573; font-size:10px; padding:2px;">
                 <input type="number" id="manual_y" value="0" style="flex:1; background:transparent; border:1px solid #333; color:#2ed573; font-size:10px; padding:2px;">
@@ -897,8 +934,27 @@ function initUIEvents() {
 
     const exportBtn = document.getElementById('export_btn');
     if (exportBtn) exportBtn.onclick = () => {
-        console.log("⬇️ JSON BỘ NHỚ:", JSON.stringify(memory, null, 2));
-        alert("Đã Export vào Console (F12)!");
+        const liveData = getGameData();
+        const searchList = ["pete", "peggy", "bert", "tywin", "raven", "cornwell", "tinker", "betty", "blacksmith", "grimbly", "timmy", "grimtooth"];
+        
+        const filteredLive = {};
+        if (liveData && liveData.allPlayers) {
+            Object.keys(liveData.allPlayers).forEach(name => {
+                const lowerName = name.toLowerCase();
+                if (searchList.some(s => lowerName.includes(s))) {
+                    filteredLive[name] = liveData.allPlayers[name];
+                }
+            });
+        }
+
+        const output = {
+            timestamp: new Date().toISOString(),
+            target_npcs_found: filteredLive,
+            full_saved_memory: memory
+        };
+        console.log("⬇️ [SFL EXPORT]: TRÍCH XUẤT TỌA ĐỘ NPC (FILTERED)");
+        console.log(JSON.stringify(output, null, 2));
+        alert("Đã Export Tọa độ các NPC chỉ định vào Console (F12)!");
     };
 
     const saveBtn = document.getElementById('save_btn');
@@ -909,17 +965,48 @@ function initUIEvents() {
     };
 }
 
-// Global UI Heartbeat
+// Global UI Heartbeat (20Hz for Real-time smoothness)
 setInterval(() => {
     const data = getGameData();
+    const radarX = document.getElementById('radar_x');
+    const radarY = document.getElementById('radar_y');
+    const targetDisp = document.getElementById('target_npc_disp');
     const indicator = document.getElementById('sync-indicator');
-    if (indicator) {
-        if (data && data.player) {
+
+    if (targetDisp) {
+        targetDisp.innerText = "MT: " + (targetNPC ? targetNPC.toUpperCase() : "KHÔNG CÓ");
+    }
+
+    if (data && data.player) {
+        if (radarX && radarY) {
+            radarX.innerText = Math.round(data.player.x);
+            radarY.innerText = Math.round(data.player.y);
+        }
+        if (indicator) {
             indicator.style.background = "#2ed573";
             indicator.style.boxShadow = "0 0 5px #2ed573";
-        } else {
+        }
+
+        // --- HỆ THỐNG TỰ ĐỘNG HIỆU CHUẨN (AUTO-CALIBRATION) ---
+        // Nếu thấy NPC nào đó từ Bridge, tự động cập nhật tọa độ vào bộ nhớ
+        if (data.allPlayers) {
+            for (const name in data.allPlayers) {
+                if (KNOWN_NPCS.includes(name.toLowerCase())) {
+                    const pos = data.allPlayers[name];
+                    const existing = memory.npcs[name];
+                    // Chỉ cập nhật nếu tọa độ khác biệt đáng kể (>5px) để tránh lưu file liên tục
+                    if (!existing || Math.abs(existing.x - pos.x) > 5 || Math.abs(existing.y - pos.y) > 5) {
+                        memory.npcs[name.toLowerCase()] = { x: pos.x, y: pos.y, island: targetIsland || "plaza" };
+                        saveMemory();
+                        console.log(`📍 [AUTO-CALIB]: Đã tự động cập nhật tọa độ cho ${name.toUpperCase()}!`);
+                    }
+                }
+            }
+        }
+    } else {
+        if (indicator) {
             indicator.style.background = "#555";
             indicator.style.boxShadow = "none";
         }
     }
-}, 500);
+}, 50); 
