@@ -1,0 +1,25 @@
+{
+  "total_npcs_mapped": 18,
+  "islands_monitored": ["plaza", "beach", "kingdom", "retreat"],
+  "npc_stats": {
+    "plaza": ["PETE", "PEGGY", "BERT", "GURIA", "RAVEN", "TINKER"],
+    "beach": ["CORALE", "OLD SALTY", "STELLA", "FINN", "TANGO", "PHARAOH"],
+    "kingdom": ["ELDRIC", "REGINALD", "GAMBIT", "VICTORIA", "MIRANDA"],
+    "retreat": ["GURIA", "GRIMBLY"]
+  },
+  "travel_observations": {
+    "plaza_to_beach": "Map Travel via Globe icon",
+    "kingdom_to_plaza": "Map Travel via Globe icon",
+    "speed": "Average 1000ms duration covers approx 100 character steps"
+  },
+  "dom_analysis": {
+    "sidebar": "div.relative.flex.flex-col",
+    "world_globe": "img[src*='world'] at (20, 958)",
+    "island_buttons": {
+      "plaza": "(476, 605)",
+      "beach": "(413, 541)",
+      "kingdom": "(476, 392)",
+      "retreat": "(628, 692)"
+    }
+  }
+}

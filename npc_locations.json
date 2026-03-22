@@ -1,0 +1,39 @@
+{
+  "islands": {
+    "plaza": {
+      "npcs": {
+        "pete": {"path": [{"dir": "down", "duration": 800}], "description": "Near spawn center"},
+        "peggy": {"path": [{"dir": "left", "duration": 2500}], "description": "Fish shop left"},
+        "bert": {"path": [{"dir": "up", "duration": 1800}], "description": "Center fountain"},
+        "guria": {"path": [{"dir": "left", "duration": 3500}, {"dir": "up", "duration": 1500}], "description": "Blacksmith top-left"},
+        "raven": {"path": [{"dir": "right", "duration": 3500}, {"dir": "up", "duration": 1500}], "description": "Crafting area top-right"},
+        "tinker": {"path": [{"dir": "right", "duration": 3500}, {"dir": "up", "duration": 1800}], "description": "Next to Raven"},
+        "betty": {"path": [{"dir": "down", "duration": 1500}, {"dir": "left", "duration": 500}], "description": "Southwest at Flower Shop"},
+        "blacksmith": {"path": [{"dir": "left", "duration": 3000}, {"dir": "up", "duration": 1000}], "description": "Northwest Blacksmith stall"}
+      }
+    },
+    "beach": {
+      "npcs": {
+        "corale": {"path": [{"dir": "left", "duration": 3500}, {"dir": "down", "duration": 1200}], "description": "Lighthouse water area"},
+        "old salty": {"path": [{"dir": "left", "duration": 4000}], "description": "Near lighthouse on sand"},
+        "stella": {"path": [{"dir": "right", "duration": 5000}], "description": "Far right umbrellas"},
+        "finn": {"path": [{"dir": "right", "duration": 2500}, {"dir": "up", "duration": 800}], "description": "Upper sand area"}
+      }
+    },
+    "kingdom": {
+      "npcs": {
+        "eldric": {"path": [{"dir": "left", "duration": 2500}, {"dir": "up", "duration": 1500}], "description": "Top-left stall"},
+        "reginald": {"path": [{"dir": "right", "duration": 2500}, {"dir": "up", "duration": 1500}], "description": "Top-right building"},
+        "gambit": {"path": [{"dir": "right", "duration": 2500}, {"dir": "down", "duration": 1500}], "description": "Bottom-right chess area"},
+        "victoria": {"path": [{"dir": "up", "duration": 3000}], "description": "Center throne area"},
+        "tywin": {"path": [{"dir": "left", "duration": 1500}, {"dir": "down", "duration": 1000}], "description": "Kingdom merchant"}
+      }
+    },
+    "retreat": {
+      "npcs": {
+        "guria": {"path": [{"dir": "left", "duration": 2500}, {"dir": "up", "duration": 2000}], "description": "Top-left area"},
+        "grimbly": {"path": [{"dir": "down", "duration": 2500}], "description": "Bottom path near sign"}
+      }
+    }
+  }
+}

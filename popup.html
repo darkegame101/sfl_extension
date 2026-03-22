@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SFL Auto-Deliver</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600&display=swap');
+
+        body {
+            width: 280px;
+            padding: 20px;
+            font-family: 'Outfit', sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h2 {
+            margin: 10px 0 20px;
+            font-size: 20px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .status-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 15px;
+            width: 100%;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+            text-align: center;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+            background: #ff4757;
+            box-shadow: 0 0 10px #ff4757;
+            transition: all 0.3s ease;
+        }
+
+        .status-indicator.active {
+            background: #2ed573;
+            box-shadow: 0 0 10px #2ed573;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        #startStopBtn {
+            background: #2ed573;
+            color: #1e3c72;
+            box-shadow: 0 4px 15px rgba(46, 213, 115, 0.3);
+        }
+
+        #startStopBtn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(46, 213, 115, 0.4);
+        }
+
+        #startStopBtn:active {
+            transform: translateY(0);
+        }
+
+        #startStopBtn.stop {
+            background: #ff4757;
+            color: white;
+            box-shadow: 0 4px 15px rgba(255, 71, 87, 0.3);
+        }
+
+        #startStopBtn.stop:hover {
+            box-shadow: 0 6px 20px rgba(255, 71, 87, 0.4);
+        }
+
+        .export-btn {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 8px;
+            width: 100%;
+            border-radius: 8px;
+            font-size: 12px;
+            margin-top: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .export-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        .footer {
+            margin-top: 15px;
+            font-size: 11px;
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+    <h2>SFL Delivery Tool</h2>
+    
+    <div class="status-card">
+        <span id="indicator" class="status-indicator"></span>
+        <span id="statusText">Inactive</span>
+    </div>
+
+    <button id="startStopBtn" class="btn">Bật Extension</button>
+    <button id="resetBtn" class="btn" style="margin-top: 5px; background: #6c757d;">Reset Bot State</button>
+    <button id="exportAnalyticsBtn" class="export-btn">Export Analytics Data</button>
+
+    <div class="footer">
+        Automatically deliver NPC orders in Sunflower Land.
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

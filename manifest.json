@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "SFL Auto-Deliver",
+  "version": "1.0",
+  "description": "Automates Sunflower Land NFT deliveries",
+  "permissions": ["activeTab", "storage"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://sunflower-land.com/*", "https://api.sunflower-land.com/link/callback*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://sunflower-land.com/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ]
+}

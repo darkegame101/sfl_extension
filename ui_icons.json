@@ -1,0 +1,26 @@
+{
+  "top_left": {
+    "avatar": {"selector": ".rounded-full", "action": "Player Profile"},
+    "codex": {"selector": "img[src*='codex']", "coord": [20, 136], "action": "Deliveries & Quests"},
+    "missions": {"selector": "img[src*='quest']", "coord": [20, 210], "action": "Achievements"}
+  },
+  "bottom_left": {
+    "chat": {"selector": "img[src*='chat']", "coord": [20, 810], "action": "Community Chat"},
+    "world": {"selector": "img[src*='world']", "coord": [20, 882], "action": "Marketplace / Travel"},
+    "settings": {"selector": "img[src*='settings']", "coord": [20, 958], "action": "Game Settings"}
+  },
+  "top_right": {
+    "inventory": {"selector": "img[src*='inventory']", "coord": [980, 112], "action": "Sack / Inventory"},
+    "buildings": {"selector": "img[src*='buildings']", "coord": [983, 186], "action": "Shop / Construction"}
+  },
+  "bottom_right": {
+    "save": {"selector": "img[src*='save']", "coord": [980, 955], "action": "Sync / Save Progress"}
+  },
+  "navigation_urls": {
+    "plaza": "https://sunflower-land.com/play/#/world/plaza",
+    "beach": "https://sunflower-land.com/play/#/world/beach",
+    "kingdom": "https://sunflower-land.com/play/#/world/kingdom",
+    "retreat": "https://sunflower-land.com/play/#/world/retreat",
+    "home": "https://sunflower-land.com/play/#/"
+  }
+}

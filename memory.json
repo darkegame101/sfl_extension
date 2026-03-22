@@ -1,0 +1,25 @@
+{
+  "npcs": {
+    "guria": { "island": "plaza", "path": [
+        {"dir": "left", "duration": 2500},
+        {"dir": "down", "duration": 800}
+    ]},
+    "gruenuk": { "island": "plaza", "path": [
+        {"dir": "right", "duration": 1500},
+        {"dir": "up", "duration": 500}
+    ]},
+    "pete": { "island": "plaza", "path": [
+        {"dir": "right", "duration": 2000},
+        {"dir": "down", "duration": 1000}
+    ]},
+    "old salty": { "island": "beach", "path": [
+        {"dir": "down", "duration": 3000},
+        {"dir": "right", "duration": 1500}
+    ]}
+  },
+  "islands": {
+    "main": "Home",
+    "plaza": "Plaza",
+    "beach": "Beach"
+  }
+}
