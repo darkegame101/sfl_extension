@@ -3,13 +3,9 @@
     "plaza": {
       "npcs": {
         "pete": {
-          "path": [
-            {
-              "dir": "down",
-              "duration": 800
-            }
-          ],
-          "description": "Near spawn center"
+          "x": 370,
+          "y": 430,
+          "description": "Near spawn center (Calibrated)"
         },
         "peggy": {
           "x": 203,
@@ -75,17 +71,9 @@
           "description": "Southwest at Flower Shop"
         },
         "blacksmith": {
-          "path": [
-            {
-              "dir": "left",
-              "duration": 3000
-            },
-            {
-              "dir": "up",
-              "duration": 1000
-            }
-          ],
-          "description": "Northwest Blacksmith stall"
+          "x": 366,
+          "y": 130,
+          "description": "Northwest Blacksmith stall (Calibrated)"
         },
         "grimbly": {
           "path": [
@@ -102,9 +90,9 @@
           "description": "NEW - Need GPS"
         },
         "grimtooth": {
-          "x": 0,
-          "y": 0,
-          "description": "NEW - Need GPS"
+          "x": 809,
+          "y": 362,
+          "description": "South-East (Calibrated)"
         }
       }
     },

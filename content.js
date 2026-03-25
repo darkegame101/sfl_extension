@@ -17,6 +17,9 @@ let detourTicks = 0;
 let detourDir = '';
 let stuckMemory = {}; // { dir: timestamp }
 
+// Toggles
+const AUTO_DELIVER_ENABLED = true; // Auto-Deliver is officially ON
+
 // Recording variables
 let isRecording = false;
 let recordStartTime = 0;
@@ -310,9 +313,15 @@ async function executePathToNPC(npcData) {
     console.log(`📡 [PLAZA-NAV]: Đang di chuyển ${npcName.toUpperCase()} -> Tọa độ mục tiêu: (${Math.round(target.x)}, ${Math.round(target.y)})`);
 
     if (data && data.player) {
-        await moveTowardsTarget(target.x, target.y);
-        console.log(`🎯 [TỚI ĐÍCH]: Đã chạm vùng tương tác của ${npcName.toUpperCase()}.`);
-        return true;
+        const reached = await moveTowardsTarget(target.x, target.y);
+        
+        if (reached) {
+            console.log(`🎯 [TỚI ĐÍCH]: Đã chạm vùng tương tác của ${npcName.toUpperCase()}.`);
+            return true;
+        } else {
+            console.warn(`❌ [LỠ ĐƯỜNG]: Bị kẹt, không thể áp sát ${npcName.toUpperCase()}! Bỏ qua tương tác...`);
+            return false;
+        }
     }
 
     return false;
@@ -331,8 +340,10 @@ async function moveTowardsTarget(tx, ty) {
     let waypointIdx = 0;
     let stuckCount = 0;
     let lastX = 0, lastY = 0;
+    let maxSteps = 400; // Bảo vệ vòng lặp vô tận (khoảng 40-60 giây)
 
-    while (isRunning && waypointIdx < waypoints.length) {
+    while (isRunning && waypointIdx < waypoints.length && maxSteps > 0) {
+        maxSteps--;
         const data = getGameData();
         if (!data || !data.player) break;
 
@@ -345,6 +356,7 @@ async function moveTowardsTarget(tx, ty) {
         if (Math.abs(dx) < 20 && Math.abs(dy) < 20) {
             waypointIdx++;
             stuckCount = 0;
+            if (waypointIdx >= waypoints.length) break; // Hoàn thành
             continue;
         }
 
@@ -352,17 +364,25 @@ async function moveTowardsTarget(tx, ty) {
         if (Math.abs(curX - lastX) < 0.2 && Math.abs(curY - lastY) < 0.2) {
             stuckCount++;
         } else {
-            stuckCount = 0;
+            stuckCount = 0; // Đã nhúc nhích được
         }
         lastX = curX; lastY = curY;
 
-        // Nếu kẹt quá lâu ở một waypoint, tính lại đường
+        // BỊ KẸT: Kích hoạt thuật toán gỡ rối
         if (stuckCount > 10) {
-            console.log(`🔄 [RE-PATH]: Đang tính toán lại đường đi do vật cản mới...`);
+            console.log(`🔄 [RE-PATH]: Đang tính toán lại đường đi do kẹt...`);
             waypoints = await findPath(tx, ty);
             waypointIdx = 0;
             stuckCount = 0;
-            if (!waypoints) break;
+            
+            if (!waypoints || waypoints.length === 0) {
+                console.log("🚦 [LÁCH QUA]: Đường bị bịt kín! Kích hoạt thuật toán Lách (Random Jiggle)...");
+                const randDirs = ['up', 'down', 'left', 'right'];
+                const evasiveDir = randDirs[Math.floor(Math.random() * randDirs.length)];
+                await moveCharacter(evasiveDir, 400); // Né góc lớn
+                waypoints = [{ x: tx, y: ty }]; // Chuyển sang đi thẳng lại
+                continue;
+            }
             continue;
         }
 
@@ -374,13 +394,22 @@ async function moveTowardsTarget(tx, ty) {
         }
         await sleep(10);
     }
+    
+    // TRẢ VỀ TÌNH TRẠNG THỰC TẾ: Đã tới nơi (Bán kính 40px) hay chưa?
+    const finalData = getGameData();
+    if (finalData && finalData.player) {
+        const finalDistX = Math.abs(tx - finalData.player.x);
+        const finalDistY = Math.abs(ty - finalData.player.y);
+        return (finalDistX < 40 && finalDistY < 40);
+    }
+    return false;
 }
 
 // Master NPC Data (Pixel Coordinates from Bottom-Right Corner)
 // Conversion: 1s walk = 100 points
 const MASTER_NPC_DATA = {
     "plaza": {
-        "pete": { "x": -308, "y": 401, "island": "plaza" },
+        "pete": { "x": 370, "y": 430, "island": "plaza" },
         "peggy": { "x": 211, "y": 401, "island": "plaza" },
         "bert": { "x": -400, "y": -800, "island": "plaza" },
         "tywin": { "x": -150, "y": 100, "island": "plaza" },
@@ -388,10 +417,10 @@ const MASTER_NPC_DATA = {
         "cornwell": { "x": 0, "y": 0, "island": "plaza" },
         "tinker": { "x": 500, "y": -1000, "island": "plaza" },
         "betty": { "x": 534, "y": 98, "island": "plaza" },
-        "blacksmith": { "x": -800, "y": -500, "island": "plaza" },
+        "blacksmith": { "x": 366, "y": 130, "island": "plaza" },
         "grimbly": { "x": 0, "y": -800, "island": "plaza" },
         "timmy": { "x": 0, "y": 0, "island": "plaza" },
-        "grimtooth": { "x": 0, "y": 0, "island": "plaza" }
+        "grimtooth": { "x": 809, "y": 362, "island": "plaza" }
     },
     "beach": {
         "corale": { "x": -350, "y": 120, "island": "beach" },
@@ -737,6 +766,13 @@ async function interactWithNPC() {
             // 2. Thực thi Click lên Nút (hoặc click bừa vào thẻ Panel để skip chữ)
             if (actionBtn) {
                 const btnText = actionBtn.textContent.trim();
+                
+                if (!AUTO_DELIVER_ENABLED) {
+                    console.log(`⏸️ [TEST MODE]: Phát hiện Nút Hành động [${btnText}] nhưng AUTO_DELIVER đang TẮT. Đóng băng giao dịch để bạn tự Test!`);
+                    currentTask = "IDLE"; // Đưa về chế độ rảnh rỗi
+                    return; // Ngừng vòng lặp tương tác
+                }
+                
                 console.log(`👉 Đang click vào nút: [${btnText}]...`);
                 await simulateFullClick(actionBtn);
                 
@@ -856,7 +892,12 @@ async function mainLoop() {
 
                 if (finalTarget) {
                     const success = await executePathToNPC(finalTarget);
-                    if (success) currentTask = "DELIVER";
+                    if (success) {
+                        currentTask = "DELIVER";
+                    } else {
+                        console.error(`❌ [LỖI NẶNG]: Hệ thống Di chuyển ĐẦU HÀNG do kẹt vĩnh viễn không thể tới ${targetNPC.toUpperCase()}. Reset chu trình!`);
+                        currentTask = "IDLE";
+                    }
                 } else {
                     console.warn(`❌ [MOVE]: Không tìm thấy tọa độ cho ${targetNPC}. Quay lại quét đơn...`);
                     currentTask = "IDLE";

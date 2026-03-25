@@ -12,7 +12,8 @@
     {
       "matches": ["https://sunflower-land.com/*", "https://api.sunflower-land.com/link/callback*"],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_start",
+      "all_frames": true
     },
     {
       "matches": ["https://sunflower-land.com/*"],
@@ -20,5 +21,9 @@
       "run_at": "document_start",
       "world": "MAIN"
     }
-  ]
+  ],
+  "web_accessible_resources": [{
+    "resources": ["bridge.js"],
+    "matches": ["https://sunflower-land.com/*"]
+  }]
 }
