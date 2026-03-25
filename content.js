@@ -624,29 +624,47 @@ async function forceClosePanels() {
     }
 }
 
+// Lấy tên map hiện tại từ URL (vd: /world/plaza -> "plaza")
+function getCurrentIsland() {
+    const hash = window.location.hash || '';
+    const match = hash.match(/#\/world\/([^/?]+)/);
+    return match ? match[1].toLowerCase() : null;
+}
+
 async function travelToIsland(islandName) {
-    console.log(`--- ✈️ DI CHUYỂN ĐẾN: ${islandName.toUpperCase()} ---`);
-    // Đảm bảo đóng Codex trước khi đi để không bị vướng mắt nhìn (UI)
-    const closeBtn = document.querySelector('img[src*="close"], .p-2.cursor-pointer');
-    if (closeBtn) closeBtn.click();
-    await sleep(500);
+    const currentIsland = getCurrentIsland();
+    console.log(`--- ✈️ DI CHUYỂN ĐẾN: ${islandName.toUpperCase()} (Hiện tại: ${currentIsland || 'unknown'}) ---`);
 
-    // 1. Tìm nút "Travel to [Island]" trong bảng Codex đang mở
-    const travelBtn = findElementByText('.material-button, button', `Travel to ${islandName}`);
-
-    if (travelBtn) {
-        console.log(`🚢 ĐANG SỬ DỤNG NÚT DI CHUYỂN TRONG GAME: ${islandName.toUpperCase()}...`);
-        travelBtn.click();
-
-        // Đợi màn hình loading (Nếu có) hoặc chờ nhân vật dịch chuyển
-        await sleep(5000);
+    if (currentIsland === islandName.toLowerCase()) {
+        console.log(`✅ [TRAVEL]: Đã ở đúng map [${islandName}]. Không cần đổi URL.`);
         currentTask = "MOVE";
         return;
     }
 
-    console.warn(`❌ Không tìm thấy nút 'Travel to ${islandName}' trong bảng Codex.`);
-    // Nếu không thấy nút, có thể do đã ở đúng đảo rồi, kiểm tra text tiêu đề vùng (nếu có)
-    currentTask = "MOVE";
+    // Đóng Codex/UI trước khi chuyển map
+    const closeBtn = document.querySelector('img[src*="close"], .p-2.cursor-pointer');
+    if (closeBtn) closeBtn.click();
+    await sleep(300);
+
+    // Chuyển map bằng URL hash (chính xác 100%, không cần click nút)
+    const targetUrl = `#/world/${islandName.toLowerCase()}`;
+    console.log(`🗺️ [TRAVEL]: Đang chuyển URL -> ${targetUrl}`);
+    window.location.hash = `/world/${islandName.toLowerCase()}`;
+
+    // Đợi game load map mới
+    console.log(`⏳ [TRAVEL]: Đợi game load map [${islandName}]...`);
+    await sleep(3000);
+
+    // Xác nhận đã đến đúng map
+    const newIsland = getCurrentIsland();
+    if (newIsland === islandName.toLowerCase()) {
+        console.log(`✅ [TRAVEL]: Đã đến [${newIsland}] thành công!`);
+    } else {
+        console.warn(`⚠️ [TRAVEL]: URL chưa khớp (Hiện: ${newIsland}, Mong đợi: ${islandName}). Đang đợi thêm...`);
+        await sleep(1500);
+    }
+
+    currentTask = "WAIT_SYNC";
 }
 
 // Giả lập Click chuột vào tọa độ Screen Pixel trên Canvas
