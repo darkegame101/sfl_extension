@@ -424,7 +424,7 @@ const MASTER_NPC_DATA = {
     },
     "beach": {
         "corale": { "x": -350, "y": 120, "island": "beach" },
-        "tango": { "x": 0, "y": 0, "island": "beach" },
+        "tango": { "x": 488, "y": 411, "island": "beach" },
         "old salty": { "x": -400, "y": 0, "island": "beach" },
         "miranda": { "x": 0, "y": 0, "island": "beach" },
         "pharaoh": { "x": -500, "y": -300, "island": "beach" },
