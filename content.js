@@ -1,21 +1,25 @@
 // Sunflower Land Auto-Deliver Content Script
 let isRunning = false;
 let memory = {
-    npcs: {}, // Lưu tọa độ tùy chỉnh của người dùng: { "betty": { "path": [...], "island": "plaza" } }
+    npcs: {},
     islands: {},
     ready_deliveries: [],
     speedMultiplier: 1.0
 };
 
+// Đồ thị node người dùng tự nhập (load từ chrome.storage.local)
+let userNodeGraphs = {};
+chrome.storage.local.get(['sfl_node_graphs'], r => {
+    userNodeGraphs = r.sfl_node_graphs || {};
+    if (Object.keys(userNodeGraphs).length) console.log('✅ [GRAPH]: Đã nạp đồ thị của user từ storage!', Object.keys(userNodeGraphs));
+});
 // State machine variables
 let currentTask = "IDLE"; // SCAN, TRAVEL, RESET, MOVE, DELIVER, RECORD
 let targetNPC = null;
 let targetIsland = null;
 let isAutoEnabled = false;
-let stuckCount = 0;
-let detourTicks = 0;
-let detourDir = '';
-let stuckMemory = {}; // { dir: timestamp }
+let lastIsland = null;
+let isNewMapMove = false;
 
 // Toggles
 const AUTO_DELIVER_ENABLED = true; // Auto-Deliver is officially ON
@@ -217,73 +221,6 @@ async function moveCharacter(direction, duration = 500) {
     await sleep(50);
 }
 
-// RESET TO CORNER (Adaptive with Modal Detection)
-async function resetToCorner() {
-    console.log("📐 [RESET]: Đang di chuyển về góc (Hiệu chuẩn 0-0)...");
-
-    // 1. Move DOWN until boundary modal appears
-    for (let i = 0; i < 40; i++) { // Max 40 steps to prevent infinite loops
-        const modal = findElementByText('h1, h2, span, p, button, div', 'Go Home') ||
-            findElementByText('h1, h2, span, p, button, div', 'Return Home');
-        if (modal) {
-            console.log("🌊 [HỆ THỐNG]: Đã chạm biên DƯỚI.");
-            break;
-        }
-        await moveCharacter('down', 500);
-        if (!isRunning && !isRecording) return;
-    }
-
-    // Clear Modal
-    let modalBtn = document.querySelector('img[src*="close"]') || findElementByText('button, span', 'Go Home') || findElementByText('button, span', 'Return Home');
-    if (modalBtn) { modalBtn.click(); await sleep(1000); }
-
-    // 2. Move RIGHT until boundary modal appears
-    for (let i = 0; i < 40; i++) {
-        const modal = findElementByText('h1, h2, span, p, button, div', 'Go Home') ||
-            findElementByText('h1, h2, span, p, button, div', 'Return Home');
-        if (modal) {
-            console.log("🌊 [HỆ THỐNG]: Đã chạm biên PHẢI.");
-            break;
-        }
-        await moveCharacter('right', 500);
-        if (!isRunning && !isRecording) return;
-    }
-
-    // Clear Modal again
-    modalBtn = document.querySelector('img[src*="close"]') || findElementByText('button, span', 'Go Home') || findElementByText('button, span', 'Return Home');
-    if (modalBtn) modalBtn.click();
-    await sleep(500);
-
-    // ZERO THE COORDINATES
-    currentX = 0;
-    currentY = 0;
-
-    console.log("✅ [RESET]: Đã về góc 0-0. Hệ tọa độ đã được hiệu chuẩn!");
-    currentTask = "RECORD";
-}
-
-// MOVE TO COORDINATE (Targeted Navigation)
-async function moveToCoord(targetX, targetY) {
-    const dx = targetX - currentX;
-    const dy = targetY - currentY;
-
-    console.log(`🎯 [NAV]: Moving to (${Math.round(targetX)}, ${Math.round(targetY)}) | Delta: [${Math.round(dx)}, ${Math.round(dy)}]`);
-
-    // Move X first
-    if (Math.abs(dx) > 1) { // 1px threshold
-        const dir = dx > 0 ? 'right' : 'left';
-        const duration = Math.abs(dx) / (BASE_SPEED * (memory.speedMultiplier || 1.0));
-        await moveCharacter(dir, duration);
-    }
-
-    // Move Y second
-    if (Math.abs(dy) > 1) {
-        const dir = dy > 0 ? 'down' : 'up';
-        const duration = Math.abs(dy) / (BASE_SPEED * (memory.speedMultiplier || 1.0));
-        await moveCharacter(dir, duration);
-    }
-}
-
 // Execute path to NPC (ULTRA MODE: Direct Link Engine-to-Engine)
 async function executePathToNPC(npcData) {
     // 🛡️ SENSOR GRACE PERIOD: Đợi 2 giây nếu mất kết nối
@@ -313,15 +250,28 @@ async function executePathToNPC(npcData) {
     console.log(`📡 [PLAZA-NAV]: Đang di chuyển ${npcName.toUpperCase()} -> Tọa độ mục tiêu: (${Math.round(target.x)}, ${Math.round(target.y)})`);
 
     if (data && data.player) {
-        const reached = await moveTowardsTarget(target.x, target.y);
+        // ƯU TIÊN: Điều hướng qua đồ thị Waypoint Graph
+        console.log(`🗺️ [GRAPH-NAV]: Bắt đầu điều hướng qua đồ thị liên thông...`);
+        const graphDone = await navigateViaGraph(target.x, target.y);
         
-        if (reached) {
-            console.log(`🎯 [TỚI ĐÍCH]: Đã chạm vùng tương tác của ${npcName.toUpperCase()}.`);
-            return true;
-        } else {
-            console.warn(`❌ [LỠ ĐƯỜNG]: Bị kẹt, không thể áp sát ${npcName.toUpperCase()}! Bỏ qua tương tác...`);
-            return false;
+        if (!graphDone) {
+            // FALLBACK: Di chuyển thẳng nếu không có graph
+            console.warn(`⚠️ [GRAPH-NAV]: Không dùng được đồ thị. Dùng di chuyển thẳng...`);
+            await moveTowardsTarget(target.x, target.y);
         }
+
+        // Xác nhận đã tới đích (bán kính 50px)
+        const finalData = getGameData();
+        if (finalData && finalData.player) {
+            const distX = Math.abs(target.x - finalData.player.x);
+            const distY = Math.abs(target.y - finalData.player.y);
+            if (distX < 50 && distY < 50) {
+                console.log(`🎯 [TỚI ĐÍCH]: Đã chạm vùng tương tác của ${npcName.toUpperCase()}.`);
+                return true;
+            }
+        }
+        console.warn(`❌ [LỠ ĐƯỜNG]: Không thể áp sát ${npcName.toUpperCase()}! Bỏ qua tương tác...`);
+        return false;
     }
 
     return false;
@@ -405,22 +355,66 @@ async function moveTowardsTarget(tx, ty) {
     return false;
 }
 
+// Hàm di chuyển thẳng tuyệt đối (Dùng để đi giữa các node trong Graph)
+// Không gọi A* (findPath) để tránh việc tính toán lại gây kẹt
+async function moveStraight(tx, ty) {
+    let stuckCount = 0;
+    let lastX = 0, lastY = 0;
+    let maxSteps = 200; 
+
+    while (isRunning && maxSteps > 0) {
+        maxSteps--;
+        const data = getGameData();
+        if (!data || !data.player) break;
+
+        const { x: curX, y: curY } = data.player;
+        const dx = tx - curX;
+        const dy = ty - curY;
+
+        // Chạm đích (20px)
+        if (Math.abs(dx) < 20 && Math.abs(dy) < 20) break;
+
+        // Kiểm tra kẹt (Nới lỏng hơn so với moveTowardsTarget)
+        if (Math.abs(curX - lastX) < 1 && Math.abs(curY - lastY) < 1) {
+            stuckCount++;
+        } else {
+            stuckCount = 0;
+        }
+        lastX = curX; lastY = curY;
+
+        if (stuckCount > 25) {
+            console.warn(`🚧 [STUCK]: Kẹt khi đi thẳng tới (${Math.round(tx)}, ${Math.round(ty)}). Thử nhích nhẹ...`);
+            await moveCharacter('up', 100);
+            await moveCharacter('down', 100);
+            stuckCount = 0;
+        }
+
+        // Di chuyển Axis-Aligned
+        if (Math.abs(dx) > 20) {
+            await moveCharacter(dx > 0 ? 'right' : 'left', 120);
+        } else if (Math.abs(dy) > 20) {
+            await moveCharacter(dy > 0 ? 'down' : 'up', 120);
+        }
+        await sleep(10);
+    }
+}
+
 // Master NPC Data (Pixel Coordinates from Bottom-Right Corner)
 // Conversion: 1s walk = 100 points
 const MASTER_NPC_DATA = {
     "plaza": {
-        "pete": { "x": 370, "y": 430, "island": "plaza" },
-        "peggy": { "x": 211, "y": 401, "island": "plaza" },
-        "bert": { "x": -400, "y": -800, "island": "plaza" },
-        "tywin": { "x": -150, "y": 100, "island": "plaza" },
-        "raven": { "x": 200, "y": -1000, "island": "plaza" },
-        "cornwell": { "x": 0, "y": 0, "island": "plaza" },
-        "tinker": { "x": 500, "y": -1000, "island": "plaza" },
-        "betty": { "x": 534, "y": 98, "island": "plaza" },
-        "blacksmith": { "x": 366, "y": 130, "island": "plaza" },
-        "grimbly": { "x": 0, "y": -800, "island": "plaza" },
-        "timmy": { "x": 0, "y": 0, "island": "plaza" },
-        "grimtooth": { "x": 809, "y": 362, "island": "plaza" }
+        "pete": { "x": 389, "y": 425, "island": "plaza" },
+        "peggy": { "x": 203, "y": 392, "island": "plaza" },
+        "bert": { "x": 776, "y": 122, "island": "plaza" },
+        "tywin": { "x": 64, "y": 84, "island": "plaza" },
+        "raven": { "x": 281, "y": 83, "island": "plaza" },
+        "cornwell": { "x": 497, "y": 126, "island": "plaza" },
+        "tinker": { "x": 0, "y": 0, "island": "plaza" },
+        "betty": { "x": 529, "y": 122, "island": "plaza" },
+        "blacksmith": { "x": 365, "y": 139, "island": "plaza" },
+        "grimbly": { "x": 783, "y": 370, "island": "plaza" },
+        "timmy": { "x": 627, "y": 122, "island": "plaza" },
+        "grimtooth": { "x": 783, "y": 370, "island": "plaza" }
     },
     "beach": {
         "corale": { "x": -350, "y": 120, "island": "beach" },
@@ -437,11 +431,118 @@ const MASTER_NPC_DATA = {
         "victoria": { "x": 0, "y": -300, "island": "kingdom" }
     },
     "retreat": {
-        "guria": { "x": -500, "y": -500, "island": "retreat" },
-        "grubnuk": { "x": 0, "y": 0, "island": "retreat" },
-        "gordo": { "x": 0, "y": 0, "island": "retreat" }
+        "guria": { "x": 409, "y": 246, "island": "retreat" },
+        "grubnuk": { "x": 409, "y": 246, "island": "retreat" },
+        "gordo": { "x": 552, "y": 260, "island": "retreat" }
     }
 };
+
+// Ghi chú: ISLAND_GRAPHS hiện được tải từ file islands_graph_data.js để dễ quản lý tọa độ.
+
+
+// BFS tìm đường ngắn nhất trên waypoint graph
+function graphBFS(graph, startNodeId, endNodeId) {
+    if (startNodeId === endNodeId) return [startNodeId];
+    const adj = {};
+    for (const [a, b] of graph.edges) {
+        if (!adj[a]) adj[a] = [];
+        if (!adj[b]) adj[b] = [];
+        adj[a].push(b);
+        adj[b].push(a);
+    }
+    const queue = [[startNodeId]];
+    const visited = new Set([startNodeId]);
+    while (queue.length > 0) {
+        const path = queue.shift();
+        const node = path[path.length - 1];
+        for (const neighbor of (adj[node] || [])) {
+            if (neighbor === endNodeId) return [...path, neighbor];
+            if (!visited.has(neighbor)) {
+                visited.add(neighbor);
+                queue.push([...path, neighbor]);
+            }
+        }
+    }
+    return null; // Không có đường
+}
+
+// Tìm node gần nhất với tọa độ (x, y) trong graph
+function findNearestNode(graph, x, y) {
+    let best = null, bestDist = Infinity;
+    for (const [id, node] of Object.entries(graph.nodes)) {
+        const d = Math.abs(node.x - x) + Math.abs(node.y - y);
+        if (d < bestDist) { bestDist = d; best = id; }
+    }
+    return best;
+}
+
+// Điều hướng nhân vật qua đồ thị đến tọa độ đích
+// - Ưu tiên dùng đồ thị user tự nhập (userNodeGraphs)
+// - Fallback sang ISLAND_GRAPHS cứng
+// - Di chuyển giữa 2 node: đi ngang trước (X), rồi dọc (Y)
+async function navigateViaGraph(targetX, targetY) {
+    const island = getCurrentIsland() || 'plaza';
+    // Ưu tiên user graph, fallback sang hardcoded graph
+    const graph = (userNodeGraphs[island] && Object.keys(userNodeGraphs[island].nodes || {}).length > 0)
+        ? userNodeGraphs[island]
+        : window.SFL_ISLAND_GRAPHS[island];
+
+    if (!graph || !graph.nodes || Object.keys(graph.nodes).length === 0) {
+        console.warn(`⚠️ [GRAPH]: Không có đồ thị cho island [${island}]. Dùng di chuyển thẳng.`);
+        return false;
+    }
+
+    const data = getGameData();
+    if (!data || !data.player) return false;
+
+    const { x: curX, y: curY } = data.player;
+    let startNode = findNearestNode(graph, curX, curY);
+    
+    // Ưu tiên node 'root' nếu ĐÂY LÀ LẦN DI CHUYỂN ĐẦU TIÊN khi vừa đổi map
+    if (isNewMapMove && graph.nodes.root) {
+        const distRoot = Math.abs(graph.nodes.root.x - curX) + Math.abs(graph.nodes.root.y - curY);
+        if (distRoot < 300) { // Tăng nhẹ phạm vi vì vừa vào map player có thể đứng hơi xa root
+            console.log("📍 [ENTRY]: Lần đầu vào map. Ưu tiên vào đồ thị qua node [root].");
+            startNode = "root";
+            isNewMapMove = false; // Đã vào đồ thị thành công, từ sau cứ node gần nhất mà đi
+        }
+    }
+
+    const endNode = findNearestNode(graph, targetX, targetY);
+    console.log(`🗺️ [GRAPH-NAV]: Tìm đường từ node [${startNode}] → [${endNode}] trên map [${island}]`);
+
+    const path = graphBFS(graph, startNode, endNode);
+    if (!path || path.length === 0) {
+        console.warn(`⚠️ [GRAPH]: Không có đường từ [${startNode}] tới [${endNode}]. Thử di chuyển thẳng.`);
+        return false;
+    }
+
+    // Thêm điểm đích thật vào cuối path
+    const waypoints = path.map(id => graph.nodes[id]);
+    waypoints.push({ x: targetX, y: targetY });
+    console.log(`✅ [GRAPH]: Lộ trình ${waypoints.length} điểm: ${path.join(' → ')}`);
+
+    // Di chuyển lần lượt qua từng waypoint
+    // Giữa 2 node: đi ngang (X) trước, rồi dọc (Y) - KHÔNG CHÉO
+    for (const wp of waypoints) {
+        if (!isRunning) break;
+        // Bước 1: Di chuyển ngang đến x của waypoint (giữ y cũ)
+        const midData = getGameData();
+        if (midData && midData.player) {
+            if (Math.abs(midData.player.x - wp.x) > 20) {
+                await moveStraight(wp.x, midData.player.y);
+            }
+        }
+        // Bước 2: Di chuyển dọc đến y của waypoint
+        const midData2 = getGameData();
+        if (midData2 && midData2.player) {
+            if (Math.abs(midData2.player.y - wp.y) > 20) {
+                await moveStraight(midData2.player.x, wp.y);
+            }
+        }
+    }
+    return true;
+}
 
 async function scanDeliveries() {
     console.log("--- 🕵️ QUÁET GIAO HÀNG ---");
@@ -853,6 +954,14 @@ async function mainLoop() {
     try {
         await loadMemory();
 
+        // Kiểm tra chuyển map để ưu tiên node [root]
+        const currentIsland = getCurrentIsland();
+        if (currentIsland && currentIsland !== lastIsland) {
+            console.log(`🌍 [ISLAND]: Phát hiện chuyển sang đảo mới [${currentIsland}]. Bật chế độ ưu tiên [root].`);
+            lastIsland = currentIsland;
+            isNewMapMove = true;
+        }
+
         // Connection Handling
         const retryBtn = findElementByText('.material-button, button', 'Retry');
         if (retryBtn) { retryBtn.click(); await sleep(10000); return; }
@@ -860,13 +969,7 @@ async function mainLoop() {
         // Master UI Injection
         injectPremiumUI();
 
-        if (isRecording) {
-            if (currentTask === "RESET") {
-                await resetToCorner();
-                currentTask = "RECORD";
-            }
-            return; // Dừng tại đây khi đang ghi âm
-        }
+        if (isRecording) return; // Dừng tại đây khi đang ghi âm
 
         if (!isAutoEnabled) return; // Dừng Auto nếu nút xanh chưa bật
 
@@ -946,6 +1049,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         currentTask = "IDLE";
         targetNPC = null;
         console.log("SFL Bot Reset to IDLE");
+    } else if (request.action === "reload_graph") {
+        chrome.storage.local.get(['sfl_node_graphs'], r => {
+            userNodeGraphs = r.sfl_node_graphs || {};
+            console.log('🔄 [GRAPH]: Đã reload đồ thị từ storage!', Object.keys(userNodeGraphs));
+        });
     }
 });
 
@@ -975,6 +1083,15 @@ setTimeout(() => {
 // Đã khai báo ở trên đầu file, không khai báo lại để tránh lỗi Lint
 
 // INTERNAL ENGINE SENSOR (React Fiber - RADAR-X)
+function getCurrentIsland() {
+    const hash = window.location.hash;
+    if (hash.includes('/plaza')) return 'plaza';
+    if (hash.includes('/beach')) return 'beach';
+    if (hash.includes('/kingdom')) return 'kingdom';
+    if (hash.includes('/retreat')) return 'retreat';
+    return null;
+}
+
 // INTERNAL ENGINE SENSOR (React Fiber - RADAR-X PRO)
 function getGameData() {
     // --- ƯU TIÊN 0: OMNI-ENTITY GPS (BRIDGE) ---

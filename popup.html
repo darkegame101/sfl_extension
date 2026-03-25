@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -5,130 +6,166 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600&display=swap');
 
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
         body {
-            width: 280px;
-            padding: 20px;
+            width: 320px;
             font-family: 'Outfit', sans-serif;
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
             color: white;
-            margin: 0;
+        }
+
+        .tabs {
             display: flex;
-            flex-direction: column;
-            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
         }
-
-        h2 {
-            margin: 10px 0 20px;
-            font-size: 20px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
-        }
-
-        .status-card {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 12px;
-            padding: 15px;
-            width: 100%;
-            margin-bottom: 20px;
-            box-sizing: border-box;
+        .tab {
+            flex: 1;
+            padding: 10px;
             text-align: center;
-        }
-
-        .status-indicator {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            margin-right: 8px;
-            background: #ff4757;
-            box-shadow: 0 0 10px #ff4757;
-            transition: all 0.3s ease;
-        }
-
-        .status-indicator.active {
-            background: #2ed573;
-            box-shadow: 0 0 10px #2ed573;
-        }
-
-        .btn {
-            width: 100%;
-            padding: 12px;
-            border: none;
-            border-radius: 10px;
-            font-size: 16px;
+            font-size: 12px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s ease;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        #startStopBtn {
-            background: #2ed573;
-            color: #1e3c72;
-            box-shadow: 0 4px 15px rgba(46, 213, 115, 0.3);
-        }
-
-        #startStopBtn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(46, 213, 115, 0.4);
-        }
-
-        #startStopBtn:active {
-            transform: translateY(0);
-        }
-
-        #startStopBtn.stop {
-            background: #ff4757;
-            color: white;
-            box-shadow: 0 4px 15px rgba(255, 71, 87, 0.3);
-        }
-
-        #startStopBtn.stop:hover {
-            box-shadow: 0 6px 20px rgba(255, 71, 87, 0.4);
-        }
-
-        .export-btn {
-            background: transparent;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            color: white;
-            padding: 8px;
-            width: 100%;
-            border-radius: 8px;
-            font-size: 12px;
-            margin-top: 10px;
-            cursor: pointer;
+            opacity: 0.6;
             transition: all 0.2s;
         }
+        .tab.active { opacity: 1; border-bottom: 2px solid #FFD700; }
 
-        .export-btn:hover {
-            background: rgba(255, 255, 255, 0.1);
-            border-color: rgba(255, 255, 255, 0.5);
+        .panel { display: none; padding: 14px; }
+        .panel.active { display: block; }
+
+        /* --- BOT TAB --- */
+        .status-card {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 10px;
+            padding: 12px;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+        .status-indicator {
+            display: inline-block; width: 10px; height: 10px;
+            border-radius: 50%; margin-right: 6px;
+            background: #ff4757; box-shadow: 0 0 8px #ff4757;
+            transition: all 0.3s;
+        }
+        .status-indicator.active { background: #2ed573; box-shadow: 0 0 8px #2ed573; }
+
+        .btn {
+            width: 100%; padding: 11px; border: none; border-radius: 8px;
+            font-size: 14px; font-weight: 600; cursor: pointer;
+            transition: all 0.2s; text-transform: uppercase;
+        }
+        #startStopBtn { background: #2ed573; color: #1e3c72; margin-bottom: 8px; }
+        #startStopBtn.stop { background: #ff4757; color: white; }
+
+        /* --- NODE TAB --- */
+        .row { display: flex; gap: 6px; margin-bottom: 8px; }
+        .row input, .row select {
+            flex: 1; padding: 7px 8px; border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.25);
+            background: rgba(255,255,255,0.1); color: white;
+            font-family: 'Outfit', sans-serif; font-size: 12px;
+        }
+        .row input::placeholder { color: rgba(255,255,255,0.5); }
+        .small-btn {
+            padding: 7px 10px; border-radius: 6px; border: none;
+            background: #2a5298; color: white; font-size: 12px;
+            cursor: pointer; white-space: nowrap; font-weight: 600;
+        }
+        .small-btn.green { background: #2ed573; color: #1e3c72; }
+        .small-btn.red   { background: #ff4757; }
+        .small-btn.orange { background: #ffa502; color: #1e3c72; }
+
+        label { font-size: 11px; opacity: 0.8; display: block; margin-bottom: 4px; }
+
+        #nodeList {
+            max-height: 130px; overflow-y: auto;
+            background: rgba(0,0,0,0.2); border-radius: 6px;
+            padding: 6px; margin-bottom: 8px; font-size: 11px;
+        }
+        .node-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 3px 4px; border-radius: 4px; margin-bottom: 2px;
+        }
+        .node-item:hover { background: rgba(255,255,255,0.08); }
+        .node-item span { font-size: 11px; }
+        .node-item button {
+            border: none; background: none; color: #ff4757; cursor: pointer;
+            font-size: 13px; line-height: 1; padding: 0 2px;
         }
 
-        .footer {
-            margin-top: 15px;
-            font-size: 11px;
-            opacity: 0.7;
+        #edgeList {
+            max-height: 80px; overflow-y: auto;
+            background: rgba(0,0,0,0.2); border-radius: 6px;
+            padding: 5px; margin-bottom: 8px; font-size: 11px;
         }
+        .edge-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 2px 4px;
+        }
+        .edge-item button { border: none; background: none; color: #ff4757; cursor: pointer; }
+
+        .section-title {
+            font-size: 11px; font-weight: 600; opacity: 0.7;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }
+        .footer { padding: 8px 14px; font-size: 10px; opacity: 0.5; text-align: center; }
     </style>
 </head>
 <body>
-    <h2>SFL Delivery Tool</h2>
-    
-    <div class="status-card">
-        <div style="font-size: 14px; margin-bottom: 10px; color: #FFD700; font-weight: bold;">SFL PRO: ENGINE LINKED</div>
-        <p style="font-size: 11px; color: #ddd; margin-bottom: 15px;">Vui lòng điều khiển Bot trực tiếp qua bảng điều khiển màu đen ở góc dưới bên trái màn hình Game.</p>
-        <span id="indicator" class="status-indicator"></span>
-        <span id="statusText">Hoạt động</span>
+    <div class="tabs">
+        <div class="tab active" data-tab="bot">🤖 Bot</div>
+        <div class="tab" data-tab="nodes">🗺️ Nodes</div>
     </div>
 
-    <div class="footer">
-        Automatically deliver NPC orders in Sunflower Land.
+    <!-- BOT TAB -->
+    <div id="panel-bot" class="panel active">
+        <div class="status-card">
+            <div style="font-size: 13px; color: #FFD700; font-weight: bold; margin-bottom: 8px;">SFL PRO: ENGINE LINKED</div>
+            <div><span id="indicator" class="status-indicator"></span><span id="statusText">CHỜ BẮT ĐẦU</span></div>
+        </div>
+        <button id="startStopBtn" class="btn">🚀 BẮT ĐẦU GIAO HÀNG</button>
     </div>
+
+    <!-- NODE EDITOR TAB -->
+    <div id="panel-nodes" class="panel">
+        <div class="row">
+            <select id="islandSelect">
+                <option value="plaza">Plaza</option>
+                <option value="beach">Beach</option>
+                <option value="kingdom">Kingdom</option>
+                <option value="retreat">Retreat</option>
+            </select>
+            <button class="small-btn orange" id="clearIslandBtn">Xóa map</button>
+        </div>
+
+        <div class="section-title">Thêm Node</div>
+        <div class="row">
+            <input id="nodeName" placeholder="Tên node (vd: betty)" />
+            <input id="nodeX" type="number" placeholder="X" style="max-width:62px" />
+            <input id="nodeY" type="number" placeholder="Y" style="max-width:62px" />
+            <button class="small-btn green" id="addNodeBtn">+</button>
+        </div>
+
+        <div class="section-title">Danh sách Node</div>
+        <div id="nodeList"></div>
+
+        <div class="section-title">Thêm Cạnh (Edge)</div>
+        <div class="row">
+            <input id="edgeA" placeholder="Node A" />
+            <span style="line-height:32px">↔</span>
+            <input id="edgeB" placeholder="Node B" />
+            <button class="small-btn green" id="addEdgeBtn">+</button>
+        </div>
+
+        <div id="edgeList"></div>
+
+        <button class="small-btn green" id="saveGraphBtn" style="width:100%;padding:9px;font-size:13px;">💾 Lưu đồ thị</button>
+    </div>
+
+    <div class="footer">Sunflower Land Auto-Deliver</div>
 
     <script src="popup.js"></script>
 </body>

@@ -59,25 +59,28 @@ EventTarget.prototype.addEventListener = function(type, listener, options) { ...
 ## Giai đoạn 3 — Di chuyển đến NPC (TRAVEL → MOVE)
 
 **File:** `content.js`  
-**Hàm:** `executePathToNPC()` → `moveTowardsTarget()` → `findPath()`
+**Hàm:** `executePathToNPC()` → `navigateViaGraph()` → `graphBFS()`
 
 ### Bước 3.1 — Xác định tọa độ NPC
 - Ưu tiên lấy từ `MASTER_NPC_DATA[island][npcName]` (tọa độ cứng)
 - **Tại sao dùng tọa độ cứng:** NPC không di chuyển, vị trí cố định 100%
 
-### Bước 3.2 — Tính đường đi A*
-- Gửi `CustomEvent('SFL_GRID_REQUEST')` sang `bridge.js` để xin ma trận va chạm từ Phaser scene
-- `bridge.js` quét `scene.children.list` lấy các object có `body.immovable` hoặc texture chứa `fence/building/water`
-- Dựng lưới 32px và chạy thuật toán A* để tránh vật cản
+### Bước 3.2 — Điều hướng qua Đồ thị (Node Graph)
+- **Công nghệ:** Đồ thị liên thông (Graph) + BFS (Breadth-First Search)
+- **Cơ chế:**
+  1. Snap vị trí hiện tại đến Node gần nhất trong hệ thống
+  2. Tìm đường ngắn nhất qua các Node trung gian để đến vùng chứa NPC
+  3. Di chuyển giữa các Node theo quy tắc **Trục tọa độ (Axis-aligned)**: Đi ngang (X) trước, sau đó mới đi dọc (Y) -> **Tuyệt đối không đi chéo**.
+- **Tại sao:** Tránh các vật cản lớn mà A* thông thường khó xử lý, đồng thời mô phỏng cách người chơi thường nhấn phím (từng phím một thay vì nhấn tổ hợp).
 
-### Bước 3.3 — Di chuyển từng waypoint
-- Mỗi waypoint: gửi `KeyboardEvent('keydown')` lặp mỗi 25ms trong `duration`ms
-- **Tại sao không dùng `.dispatchEvent(new KeyboardEvent)` thông thường:**  
-  Phaser nghi ngờ `isTrusted: false` — thay vào đó ta bắn thẳng hàm listener đã cướp ở Bước 1.1 với POJO object giả có `isTrusted: true`
+### Bước 3.3 — Fallback A* (nếu graph lỗi)
+- Nếu không có đồ thị cho map đó, bot sẽ quay lại dùng `moveTowardsTarget()` với thuật toán A* cơ bản
+- Quét ma trận va chạm từ Phaser scene (`SFL_GRID_REQUEST`)
+- Tìm đường lưới 32px để tránh vật cản nhỏ
 
-### Bước 3.4 — Phát hiện kẹt
+### Bước 3.4 — Phát hiện kẹt (Stuck Detection)
 - So sánh tọa độ thật (từ `document.body.dataset.sflPos`) mỗi 150ms
-- Nếu không nhúc nhích sau 10 tick → tính lại A*, hoặc thực hiện "Random Jiggle" thoát vật cản
+- Nếu không nhúc nhích sau 10 tick → thực hiện "Random Jiggle" hoặc reset chu trình di chuyển.
 
 ---
 
