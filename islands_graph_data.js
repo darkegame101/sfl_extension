@@ -15,8 +15,8 @@ const ISLAND_GRAPHS = {
             "midle tvs": { "x": 209, "y": 83 },
             "raven-ps": { "x": 281, "y": 83 },
             "midel-tvs2": { "x": 213, "y": 174 },
-            "blacksmith-ps": { "x": 365, "y": 139 },
-            "midle-blacsmith": { "x": 365, "y": 186 },
+            "blacksmith-ps": { "x": 368, "y": 139 },
+            "midle-blacsmith": { "x": 368, "y": 194 },
             "hayor": { "x": 436, "y": 186 },
             "center top": { "x": 432, "y": 281 },
             "center bottom": { "x": 431, "y": 340 },
@@ -60,7 +60,8 @@ const ISLAND_GRAPHS = {
             ["midle grim", "ct bottom-right"],
             ["midle grim", "midle grim 2"],
             ["midle grim 2", "grim-ps"],
-            ["ct bottom-right", "center bottom"]
+            ["ct bottom-right", "center bottom"],
+            ["midle-betty1", "hayor"]
         ]
     },
     "beach": {

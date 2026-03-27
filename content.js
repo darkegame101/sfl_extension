@@ -217,8 +217,21 @@ async function moveCharacter(direction, duration = 500) {
     clearInterval(interval);
     const upParams = { key, code: key, keyCode, which: keyCode, bubbles: true, cancelable: true, view: window };
     targets.forEach(t => t.dispatchEvent(new KeyboardEvent('keyup', upParams)));
+    activeKey = null; // Clear dead reckoning tracking
 
     await sleep(50);
+}
+
+// Dừng tuyệt đối tất cả các phím di chuyển (Phòng trường hợp bị kẹt phím)
+function forceStopAllKeys() {
+    const keys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'e', 'E'];
+    const targets = [window, document, ...Array.from(document.querySelectorAll('canvas'))];
+    keys.forEach(k => {
+        const upParams = { key: k, code: k, bubbles: true, cancelable: true, view: window };
+        targets.forEach(t => t.dispatchEvent(new KeyboardEvent('keyup', upParams)));
+    });
+    activeKey = null;
+    console.log("🛑 [HỆ THỐNG]: Đã giải phóng toàn bộ phím điều khiển.");
 }
 
 // Execute path to NPC (ULTRA MODE: Direct Link Engine-to-Engine)
@@ -335,13 +348,19 @@ async function moveTowardsTarget(tx, ty) {
             continue;
         }
 
+        // TÍNH TOÁN THỜI GIAN NHẤN PHÍM DỰA TRÊN QUÃNG ĐƯỜNG (DYNAMIC DURATION)
+        const moveDist = Math.max(Math.abs(dx), Math.abs(dy));
+        const dynamicDuration = Math.min(Math.max(moveDist * 4.5, 150), 800); // Tối thiểu 150ms, tối đa 800ms để kịp check vật cản
+        
+        console.log(`🏃 [MOVE]: Cách đích ${Math.round(moveDist)}px. Nhấn giữ ${Math.round(dynamicDuration)}ms.`);
+
         // Di chuyển theo waypoint hiện tại
         if (Math.abs(dx) > Math.abs(dy)) {
-            await moveCharacter(dx > 0 ? 'right' : 'left', 120);
+            await moveCharacter(dx > 0 ? 'right' : 'left', dynamicDuration);
         } else {
-            await moveCharacter(dy > 0 ? 'down' : 'up', 120);
+            await moveCharacter(dy > 0 ? 'down' : 'up', dynamicDuration);
         }
-        await sleep(10);
+        await sleep(5);
     }
     
     // TRẢ VỀ TÌNH TRẠNG THỰC TẾ: Đã tới nơi (Bán kính 40px) hay chưa?
@@ -518,27 +537,35 @@ async function navigateViaGraph(targetX, targetY) {
 
     // Thêm điểm đích thật vào cuối path
     const waypoints = path.map(id => graph.nodes[id]);
-    waypoints.push({ x: targetX, y: targetY });
-    console.log(`✅ [GRAPH]: Lộ trình ${waypoints.length} điểm: ${path.join(' → ')}`);
+    const finalTarget = { x: targetX, y: targetY, isTarget: true };
+    waypoints.push(finalTarget);
+
+    console.log(`✅ [GRAPH]: Tìm thấy lộ trình ${waypoints.length} điểm:`);
+    path.forEach((id, i) => console.log(`   [${i + 1}] Node: ${id} (${graph.nodes[id].x}, ${graph.nodes[id].y})`));
+    console.log(`   [${waypoints.length}] ĐÍCH: (${targetX}, ${targetY})`);
 
     // Di chuyển lần lượt qua từng waypoint
-    // Giữa 2 node: đi ngang (X) trước, rồi dọc (Y) - KHÔNG CHÉO
-    for (const wp of waypoints) {
+    for (let i = 0; i < waypoints.length; i++) {
+        const wp = waypoints[i];
+        const nodeName = i < path.length ? `node [${path[i]}]` : "ĐÍCH";
+
         if (!isRunning) break;
-        // Bước 1: Di chuyển ngang đến x của waypoint (giữ y cũ)
+
+        // BƯỚC 1: Di chuyển ngang đến x của waypoint (giữ y cũ)
         const midData = getGameData();
         if (midData && midData.player) {
             if (Math.abs(midData.player.x - wp.x) > 20) {
                 await moveStraight(wp.x, midData.player.y);
             }
         }
-        // Bước 2: Di chuyển dọc đến y của waypoint
+        // BƯỚC 2: Di chuyển dọc đến y của waypoint
         const midData2 = getGameData();
         if (midData2 && midData2.player) {
             if (Math.abs(midData2.player.y - wp.y) > 20) {
                 await moveStraight(midData2.player.x, wp.y);
             }
         }
+        console.log(`📍 [WAYPOINT]: Đã tới ${nodeName} tại (${Math.round(wp.x)}, ${Math.round(wp.y)})`);
     }
     return true;
 }
@@ -775,14 +802,24 @@ async function travelToIsland(islandName) {
 
     // Xác nhận đã đến đúng map
     const newIsland = getCurrentIsland();
-    if (newIsland === islandName.toLowerCase()) {
+    const targetIslandName = islandName.toLowerCase();
+    
+    if (newIsland === targetIslandName) {
         console.log(`✅ [TRAVEL]: Đã đến [${newIsland}] thành công!`);
+        
+        // RELOAD KHI ĐẾN PLAZA ĐỂ ĐỒNG BỘ STATE (Theo yêu cầu User)
+        if (newIsland === "plaza") {
+            console.warn("🔄 [RELOAD]: Đã tới Plaza. Thực hiện làm mới trang để đồng bộ dữ liệu...");
+            saveMemory();
+            location.reload();
+            return;
+        }
+        currentTask = "WAIT_SYNC";
     } else {
-        console.warn(`⚠️ [TRAVEL]: URL chưa khớp (Hiện: ${newIsland}, Mong đợi: ${islandName}). Đang đợi thêm...`);
+        console.warn(`⚠️ [TRAVEL]: URL chưa khớp (Hiện: ${newIsland}, Mong đợi: ${targetIslandName}). Đang đợi thêm...`);
         await sleep(1500);
+        currentTask = "TRAVEL"; // Thử lại
     }
-
-    currentTask = "WAIT_SYNC";
 }
 
 // Giả lập Click chuột vào tọa độ Screen Pixel trên Canvas
@@ -810,6 +847,7 @@ async function interactWithNPC() {
     const name = (targetNPC || "").toUpperCase();
     const canvas = document.querySelector('canvas');
     console.log(`--- ⌨️ KÍCH HOẠT TƯƠNG TÁC: ${name} ---`);
+    document.body.dataset.sflInteractSuccess = "false"; // Reset tín hiệu thành công
 
     // 1. Đảm bảo đóng Codex/UI trước khi tương tác
     await forceClosePanels();
@@ -817,6 +855,15 @@ async function interactWithNPC() {
 
     for (let attempt = 0; attempt < 10; attempt++) {
         if (!isRunning) return;
+
+        // KIỂM TRA TÍN HIỆU THÀNH CÔNG TỪ BRIDGE
+        if (document.body.dataset.sflInteractSuccess === "true") {
+            console.log(`🎉 [XÁC NHẬN]: Đã nhận tín hiệu Giao hàng thành công từ Engine! Kết thúc chu kỳ.`);
+            forceStopAllKeys();
+            await sleep(1500);
+            currentTask = "IDLE";
+            return;
+        }
 
         console.log(`🔍 [1/3 - KIỂM TRA UI]: Đang tìm bảng chặn đường...`);
         const panelInfo = getOpenPanelInfo();
@@ -914,6 +961,7 @@ async function interactWithNPC() {
                 
                 if (isTerminal || btnText.toLowerCase().includes('deliver') || btnText.toLowerCase().includes('complete')) {
                     console.log(`🎉 [XÁC NHẬN]: Đã click nút CHỐT ĐƠN! Giao hàng thành công!`);
+                    forceStopAllKeys(); // Đảm bảo dừng mọi di chuyển (nếu có)
                     await sleep(3000);
                     currentTask = "IDLE"; // Chuyển về rảnh rỗi để quét mạng lệnh mới
                     saveMemory();
@@ -940,6 +988,7 @@ async function interactWithNPC() {
     }
 
     console.warn("❌ [THẤT BẠI]: Không thể tương tác sau 10 lần thử. Quay lại IDLE.");
+    forceStopAllKeys();
     currentTask = "IDLE";
 }
 
@@ -1016,6 +1065,7 @@ async function mainLoop() {
                 const sync = getGameData();
                 if (sync && sync.player) {
                     console.log("✅ [HỆ THỐNG]: Đồng bộ Engine thành công. Bắt đầu di chuyển...");
+                    isNewMapMove = true; // Bot vừa chuyển map/reload, ưu tiên node 'root' khi di chuyển
                     currentTask = "MOVE";
                 } else {
                     console.log("⏳ [ĐỢI]: Đang chờ tín hiệu Engine (Đèn Xanh)...");

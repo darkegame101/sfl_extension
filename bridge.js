@@ -141,22 +141,35 @@
                                 const npc = npcName.toLowerCase();
                                 return from === npc || from.includes(npc) || npc.includes(from);
                             });
+
+                            if (document.body.dataset.sflInteractSuccess === "true") return true;
+
                             if (targetOrder) {
                                 console.log(`🎯 [PLAN-D]: Tìm thấy đơn hàng! ID=${targetOrder.id}, From=${targetOrder.from}. Giao hàng...`);
                                 const send = svc._originalSend || svc.send;
                                 // Gửi đúng event mà gameMachine chấp nhận (đã xác nhận qua state.can)
                                 send.call(svc, { type: "order.delivered", id: targetOrder.id });
                                 console.log(`✅ [PLAN-D]: ĐÃ GIAO HÀNG THÀNH CÔNG cho ${npcName.toUpperCase()}! ID = ${targetOrder.id}`);
+                                document.body.dataset.sflInteractSuccess = "true";
                                 return true;
                             } else {
                                 console.warn(`⚠️ [PLAN-D]: Không tìm thấy đơn hàng cho [${npcName}] trong danh sách ${orders.length} đơn.`);
                             }
                         }
                     }
-                } catch(e) { console.error("Plan D Crash:", e); }
+                } catch(e) { 
+                    console.error("Plan D Crash:", e); 
+                    if (e.message && e.message.toLowerCase().includes("already completed")) {
+                        console.log("🎊 [ENGINE]: Game báo đơn đã hoàn thành. Tự động xác thực thành công.");
+                        document.body.dataset.sflInteractSuccess = "true";
+                        return true;
+                    }
+                }
             }
 
             // CHIẾN LƯỢC X: BÀN TAY VÔ HÌNH (XSTATE INJECTION DỄ QUẢN LÝ)
+            if (document.body.dataset.sflInteractSuccess === "true") return true;
+
             if (window.__SFL_GAME_SERVICE && window.__SFL_GAME_SERVICE.send) {
                 console.log("🌌 [PLAN-X]: Đang sử dụng Hệ thống Nghe lén XState Truyền thống...");
                 
@@ -205,6 +218,8 @@
             }
 
             // CHIẾN LƯỢC E: GỌI THẲNG KEYDOWN BẰNG GHOST-EVENT
+            if (document.body.dataset.sflInteractSuccess === "true") return true;
+
             if (window.__SFL_LISTENERS && window.__SFL_LISTENERS.keydown && window.__SFL_LISTENERS.keydown.length > 0) {
                 console.log(`⌨️ [PLAN-E]: Bắn phím E thông qua Mạng lưới Bị Giam Giữ...`);
                 // Tạo Ghost-Event (Object giả lập Event thật 100% để lách luật V8 isTrusted)
@@ -223,6 +238,8 @@
             }
 
             // CHIẾN LƯỢC Y: REACT FIBER PROP INJECTION (Bypass Canvas Hoàn Toàn)
+            if (document.body.dataset.sflInteractSuccess === "true") return true;
+
             console.log(`📡 [PLAN-Y]: Quét sâu React Fiber để tìm Rễ gốc Hàm Tương Tác...`);
             if (canvas) {
                 const keys = Object.keys(canvas).filter(k => k.startsWith('__react'));
@@ -476,6 +493,11 @@
                                     if (eventType.includes('INTERACT') || eventType.includes('SPEAK')) {
                                         window.__SFL_INTERCEPTED_CMD = payload !== undefined ? [event, payload] : [event];
                                         console.log(`🤖 [PLAN-X]: ĐÃ CÀI ĐẶT LỆNH MỞ NPC VÀO LÕI NHỚ!`);
+                                    }
+
+                                    if (eventType.includes('DELIVERED') || eventType.includes('COMPLETED')) {
+                                        console.log(`🎊 [XSTATE-OMNI]: Phát hiện tín hiệu HOÀN THÀNH từ Server!`);
+                                        document.body.dataset.sflInteractSuccess = "true";
                                     }
                                 }
                             } catch(e){
