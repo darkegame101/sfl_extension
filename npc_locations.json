@@ -3,221 +3,141 @@
     "plaza": {
       "npcs": {
         "pete": {
-          "x": 370,
-          "y": 430,
-          "description": "Near spawn center (Calibrated)"
+          "x": 389,
+          "y": 425,
+          "description": "Near spawn center (Synced with pete-ps)"
         },
         "peggy": {
           "x": 203,
-          "y": 394,
-          "description": "Fish shop left"
+          "y": 392,
+          "description": "Fish shop left (Synced with peggy-ps)"
         },
         "bert": {
-          "path": [
-            {
-              "dir": "up",
-              "duration": 1800
-            }
-          ],
-          "description": "Center fountain"
+          "x": 776,
+          "y": 122,
+          "description": "Center fountain area (Synced with bert-ps)"
         },
         "tywin": {
-          "path": [
-            {
-              "dir": "left",
-              "duration": 1500
-            },
-            {
-              "dir": "down",
-              "duration": 1000
-            }
-          ],
-          "description": "Kingdom merchant"
+          "x": 64,
+          "y": 84,
+          "description": "Kingdom merchant (Synced with Tywin-ps)"
         },
         "raven": {
-          "path": [
-            {
-              "dir": "right",
-              "duration": 3500
-            },
-            {
-              "dir": "up",
-              "duration": 1500
-            }
-          ],
-          "description": "Crafting area top-right"
+          "x": 281,
+          "y": 83,
+          "description": "Crafting area top-right (Synced with raven-ps)"
         },
         "cornwell": {
-          "x": 0,
-          "y": 0,
-          "description": "NEW - Need GPS"
+          "x": 497,
+          "y": 126,
+          "description": "Library area (Synced with cornwell-ps)"
         },
         "tinker": {
-          "path": [
-            {
-              "dir": "right",
-              "duration": 3500
-            },
-            {
-              "dir": "up",
-              "duration": 1800
-            }
-          ],
-          "description": "Next to Raven"
+          "x": 281,
+          "y": 83,
+          "description": "Next to Raven (Shared raven-ps)"
         },
         "betty": {
-          "x": 532,
-          "y": 98,
-          "description": "Southwest at Flower Shop"
+          "x": 529,
+          "y": 122,
+          "description": "Southwest at Flower Shop (Synced with betty-ps)"
         },
         "blacksmith": {
-          "x": 366,
-          "y": 130,
-          "description": "Northwest Blacksmith stall (Calibrated)"
+          "x": 365,
+          "y": 139,
+          "description": "Northwest Blacksmith stall (Synced with blacksmith-ps)"
         },
         "grimbly": {
-          "path": [
-            {
-              "dir": "down",
-              "duration": 2500
-            }
-          ],
-          "description": "Bottom path near sign"
+          "x": 783,
+          "y": 370,
+          "description": "Bottom path near sign (Synced with grim-ps)"
         },
         "timmy": {
-          "x": 0,
-          "y": 0,
-          "description": "NEW - Need GPS"
+          "x": 627,
+          "y": 122,
+          "description": "Market area (Synced with timmy-ps)"
         },
         "grimtooth": {
-          "x": 809,
-          "y": 362,
-          "description": "South-East (Calibrated)"
+          "x": 783,
+          "y": 370,
+          "description": "South-East (Shared grim-ps)"
         }
       }
     },
     "beach": {
       "npcs": {
         "corale": {
-          "path": [
-            {
-              "dir": "left",
-              "duration": 3500
-            },
-            {
-              "dir": "down",
-              "duration": 1200
-            }
-          ],
-          "description": "Lighthouse water area"
+          "x": 244,
+          "y": 711,
+          "description": "Lighthouse water area (Synced with corale-ps)"
         },
         "tango": {
-          "x": 0,
-          "y": 0,
-          "description": "NEW - Need GPS"
+          "x": 475,
+          "y": 423,
+          "description": "Beach area (Synced with tanggo-ps)"
         },
         "old salty": {
-          "path": [
-            {
-              "dir": "left",
-              "duration": 4000
-            }
-          ],
-          "description": "Near lighthouse on sand"
+          "x": 68,
+          "y": 223,
+          "description": "Near lighthouse on sand (Synced with old salty-ps)"
         },
         "miranda": {
-          "x": 0,
-          "y": 0,
-          "description": "NEW - Need GPS"
+          "x": 475,
+          "y": 423,
+          "description": "Beach area (Shared tanggo-ps)"
         },
         "pharaoh": {
-          "path": [
-            {
-              "dir": "left",
-              "duration": 5000
-            },
-            {
-              "dir": "down",
-              "duration": 3000
-            }
-          ],
-          "description": "Desert area"
+          "x": 68,
+          "y": 95,
+          "description": "Desert area (Synced with pharaoh-ps)"
         },
         "finn": {
-          "path": [
-            {
-              "dir": "right",
-              "duration": 2500
-            },
-            {
-              "dir": "up",
-              "duration": 800
-            }
-          ],
-          "description": "Upper sand area"
+          "x": 211,
+          "y": 589,
+          "description": "Upper sand area (Synced with finn-ps)"
         },
         "finley": {
-          "x": 0,
-          "y": 0,
-          "description": "NEW - Need GPS"
+          "x": 245,
+          "y": 457,
+          "description": "Lower sand area (Synced with finley-ps)"
         }
       }
     },
     "kingdom": {
       "npcs": {
         "gambit": {
-          "path": [
-            {
-              "dir": "right",
-              "duration": 2500
-            },
-            {
-              "dir": "down",
-              "duration": 1500
-            }
-          ],
-          "description": "Bottom-right chess area"
+          "x": 336,
+          "y": 764,
+          "description": "Bottom-right chess area (Synced with gambit-ps)"
         },
         "jester": {
-          "x": 0,
-          "y": 0,
-          "description": "NEW - Need GPS"
+          "x": 111,
+          "y": 202,
+          "description": "Castle interior (Synced with jester-ps)"
         },
         "victoria": {
-          "path": [
-            {
-              "dir": "up",
-              "duration": 3000
-            }
-          ],
-          "description": "Center throne area"
+          "x": 240,
+          "y": 123,
+          "description": "Center throne area (Synced with victoria-ps)"
         }
       }
     },
     "retreat": {
       "npcs": {
         "guria": {
-          "path": [
-            {
-              "dir": "left",
-              "duration": 2500
-            },
-            {
-              "dir": "up",
-              "duration": 2000
-            }
-          ],
-          "description": "Top-left area"
+          "x": 409,
+          "y": 246,
+          "description": "Top-left area (Synced with guria and grubunk -ps)"
         },
         "grubnuk": {
-          "x": 0,
-          "y": 0,
-          "description": "NEW - Need GPS"
+          "x": 409,
+          "y": 246,
+          "description": "Top-left area (Shared guria -ps)"
         },
         "gordo": {
-          "x": 0,
-          "y": 0,
-          "description": "NEW - Need GPS"
+          "x": 552,
+          "y": 260,
+          "description": "Market area (Synced with gordo-ps)"
         }
       }
     }

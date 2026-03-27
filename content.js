@@ -319,28 +319,27 @@ async function moveTowardsTarget(tx, ty) {
         lastX = curX; lastY = curY;
 
         // BỊ KẸT: Kích hoạt thuật toán gỡ rối
-        if (stuckCount > 10) {
-            console.log(`🔄 [RE-PATH]: Đang tính toán lại đường đi do kẹt...`);
-            waypoints = await findPath(tx, ty);
-            waypointIdx = 0;
-            stuckCount = 0;
+        if (stuckCount > 8) {
+            console.log(`🔄 [STUCK]: Phát hiện vật cản tại (${Math.round(curX)}, ${Math.round(curY)}). Đang lách...`);
             
-            if (!waypoints || waypoints.length === 0) {
-                console.log("🚦 [LÁCH QUA]: Đường bị bịt kín! Kích hoạt thuật toán Lách (Random Jiggle)...");
-                const randDirs = ['up', 'down', 'left', 'right'];
-                const evasiveDir = randDirs[Math.floor(Math.random() * randDirs.length)];
-                await moveCharacter(evasiveDir, 400); // Né góc lớn
-                waypoints = [{ x: tx, y: ty }]; // Chuyển sang đi thẳng lại
-                continue;
-            }
+            // THUẬT TOÁN LÁCH (ADVANCED JIGGLE): Di chuyển vuông góc với hướng đích
+            const moveDir = Math.abs(dx) > Math.abs(dy) ? (dy > 0 ? 'down' : 'up') : (dx > 0 ? 'right' : 'left');
+            const sideDirs = (moveDir === 'up' || moveDir === 'down') ? ['left', 'right'] : ['up', 'down'];
+            const evasiveDir = sideDirs[stuckCount % 2]; 
+            
+            console.log(`🚦 [LÁCH]: Thử đi hướng [${evasiveDir.toUpperCase()}] để vòng qua vật cản.`);
+            await moveCharacter(evasiveDir, 400); 
+            
+            stuckCount = 0;
+            lastX = 0; lastY = 0; // Reset để không bị kẹt ngay lập tức
             continue;
         }
 
         // Di chuyển theo waypoint hiện tại
         if (Math.abs(dx) > Math.abs(dy)) {
-            await moveCharacter(dx > 0 ? 'right' : 'left', 150);
+            await moveCharacter(dx > 0 ? 'right' : 'left', 120);
         } else {
-            await moveCharacter(dy > 0 ? 'down' : 'up', 150);
+            await moveCharacter(dy > 0 ? 'down' : 'up', 120);
         }
         await sleep(10);
     }
@@ -733,24 +732,42 @@ function getCurrentIsland() {
 }
 
 async function travelToIsland(islandName) {
-    const currentIsland = getCurrentIsland();
+    let currentIsland = getCurrentIsland();
+    islandName = islandName.toLowerCase();
+
     console.log(`--- ✈️ DI CHUYỂN ĐẾN: ${islandName.toUpperCase()} (Hiện tại: ${currentIsland || 'unknown'}) ---`);
 
-    if (currentIsland === islandName.toLowerCase()) {
+    // TRANSIT RULES: Beach <-> Kingdom phải qua Plaza
+    if ((currentIsland === "beach" && islandName === "kingdom") || 
+        (currentIsland === "kingdom" && islandName === "beach")) {
+        console.warn(`🚀 [TRANSIT]: Đang ở ${currentIsland}, cần đến ${islandName}. Yêu cầu trung chuyển qua [PLAZA]!`);
+        islandName = "plaza"; // Đích đến trung chuyển
+    }
+
+    if (currentIsland === islandName) {
         console.log(`✅ [TRAVEL]: Đã ở đúng map [${islandName}]. Không cần đổi URL.`);
-        currentTask = "MOVE";
+        currentTask = "MOVE"; // Sẵn sàng di chuyển
         return;
     }
 
-    // Đóng Codex/UI trước khi chuyển map
-    const closeBtn = document.querySelector('img[src*="close"], .p-2.cursor-pointer');
-    if (closeBtn) closeBtn.click();
-    await sleep(300);
+    // THỬ TÌM NÚT TRAVEL TRONG CODEX (FALLBACK NẾU HASH KHÔNG HOẠT ĐỘNG HOẶC ĐỂ LOCK UI)
+    const islandLabel = islandName.charAt(0).toUpperCase() + islandName.slice(1);
+    const travelBtn = findElementByText('.material-button, button', `Travel to ${islandLabel}`) || 
+                      findElementByText('.material-button, button', `Go to ${islandLabel}`) ||
+                      findElementByText('span', islandLabel);
 
-    // Chuyển map bằng URL hash (chính xác 100%, không cần click nút)
+    if (travelBtn && isAnyUIPanelOpen()) {
+        console.log(`👉 [TRAVEL]: Tìm thấy nút di chuyển đến [${islandLabel}] trong Codex. Đang click...`);
+        await simulateFullClick(travelBtn);
+        await sleep(1000);
+    }
+
+    // Chuyển map bằng URL hash (chính xác 100%, cực nhanh)
     const targetUrl = `#/world/${islandName.toLowerCase()}`;
-    console.log(`🗺️ [TRAVEL]: Đang chuyển URL -> ${targetUrl}`);
-    window.location.hash = `/world/${islandName.toLowerCase()}`;
+    if (window.location.hash !== targetUrl) {
+        console.log(`🗺️ [TRAVEL]: Đang chuyển URL -> ${targetUrl}`);
+        window.location.hash = targetUrl;
+    }
 
     // Đợi game load map mới
     console.log(`⏳ [TRAVEL]: Đợi game load map [${islandName}]...`);
@@ -1095,6 +1112,7 @@ function getCurrentIsland() {
 // INTERNAL ENGINE SENSOR (React Fiber - RADAR-X PRO)
 function getGameData() {
     // --- ƯU TIÊN 0: OMNI-ENTITY GPS (BRIDGE) ---
+    if (!document.body) return null;
     const posStr = document.body.dataset.sflPos;
     const entStr = document.body.dataset.sflEntities;
     const visStr = document.body.dataset.sflNPCVisuals;

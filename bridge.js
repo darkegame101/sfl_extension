@@ -459,9 +459,13 @@
                             try {
                                 let eventType = "";
                                 if (typeof event === 'string') eventType = event;
-                                else if (event && event.type) eventType = event.type;
+                                else if (event && event.type && typeof event.type === 'string') eventType = event.type;
                                 
-                                eventType = eventType.toUpperCase();
+                                if (eventType && typeof eventType === 'string') {
+                                    eventType = eventType.toUpperCase();
+                                } else {
+                                    eventType = "";
+                                }
                                 
                                 // Lọc các lệnh rác (âm thanh, di chuyển nhỏ)
                                 if (eventType.includes('INTERACT') || eventType.includes('SPEAK') || eventType.includes('DELIVER') || eventType.includes('TRADE') || eventType.includes('NPC')) {
