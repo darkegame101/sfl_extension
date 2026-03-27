@@ -407,11 +407,14 @@ async function moveStraight(tx, ty) {
             stuckCount = 0;
         }
 
-        // Di chuyển Axis-Aligned
+        // Di chuyển Axis-Aligned với thời gian nhấn phím dựa trên quãng đường
+        const moveDist = Math.max(Math.abs(dx), Math.abs(dy));
+        const dynamicDuration = Math.min(Math.max(moveDist * 4.5, 150), 800);
+
         if (Math.abs(dx) > 20) {
-            await moveCharacter(dx > 0 ? 'right' : 'left', 120);
+            await moveCharacter(dx > 0 ? 'right' : 'left', dynamicDuration);
         } else if (Math.abs(dy) > 20) {
-            await moveCharacter(dy > 0 ? 'down' : 'up', 120);
+            await moveCharacter(dy > 0 ? 'down' : 'up', dynamicDuration);
         }
         await sleep(10);
     }

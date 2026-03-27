@@ -128,7 +128,7 @@ const ISLAND_GRAPHS = {
     },
     "retreat": {
         nodes: {
-            "root": { "x": 429, "y": 443 },
+            "root": { "x": 315, "y": 406 },
             "midle0": { "x": 319, "y": 294 },
             "midle 1": { "x": 369, "y": 294 },
             "midel2": { "x": 369, "y": 246 },
