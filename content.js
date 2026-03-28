@@ -3,7 +3,7 @@ let isRunning = false;
 let memory = {
     npcs: {},
     islands: {},
-    ready_deliveries: [],
+    delivery_queue: [], // Hàng chờ các NPC đã sẵn sàng giao
     speedMultiplier: 1.0
 };
 
@@ -143,8 +143,9 @@ function findElementByText(selector, text) {
 
         // LOẠI TRỪ UI: Không lấy các phần tử nằm trong Bảng Codex hoặc Dialog (trừ khi chính nó là mục tiêu)
         const isUI = el.closest('.fixed, [role="dialog"], .bg-brown-600, .bg-blue-600');
-        // Nếu chúng ta đang tìm modal "Go Home", thì ĐƯỢC PHÉP tìm trong UI
-        if (targetText.includes('home') || targetText.includes('go home') || targetText.includes('return')) {
+        // Nếu chúng ta đang tìm modal "Go Home", hoặc các nút Skip/Xác nhận thì ĐƯỢC PHÉP tìm trong UI
+        if (targetText.includes('home') || targetText.includes('go home') || targetText.includes('return') || 
+            targetText.includes('skip') || targetText.includes('confirm') || targetText.includes('yes')) {
             return true;
         }
 
@@ -174,6 +175,115 @@ async function loadMemory() {
 // Save memory
 function saveMemory() {
     chrome.storage.local.set({ 'sfl_memory': memory });
+}
+
+// --- TIỆN ÍCH TỌA ĐỘ VÀ ĐỊNH TUYẾN THÔNG MINH ---
+function getNPCData(name) {
+    if (!name) return null;
+    name = name.toLowerCase().trim();
+    
+    // 1. Kiểm tra trực tiếp trong Bộ nhớ Tạm (User Record)
+    if (memory.npcs[name]) return { island: memory.npcs[name].island || "plaza", ...memory.npcs[name] };
+
+    // 2. Duyệt qua MASTER_NPC_DATA với cơ chế Fuzzy Match (Thông minh hơn)
+    for (const island in MASTER_NPC_DATA) {
+        for (const npcKey in MASTER_NPC_DATA[island]) {
+            // Nếu khớp chính xác HOẶC tên chứa Key HOẶC Key chứa tên (ví dụ: pete vs pumpkin' pete)
+            if (npcKey === name || name.includes(npcKey) || npcKey.includes(name)) {
+                return { island, ...MASTER_NPC_DATA[island][npcKey] };
+            }
+        }
+    }
+    return null;
+}
+
+// Tính toán tổng độ dài đường đi qua các node trong một graph
+function calculateGraphPathLength(graph, pathIds, startPos, targetPos) {
+    if (!pathIds || pathIds.length === 0) {
+        // Fallback sang Euclidean nếu không tìm thấy đường trong graph
+        const dx = startPos.x - targetPos.x;
+        const dy = startPos.y - targetPos.y;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    let totalLength = 0;
+    const startNode = graph.nodes[pathIds[0]];
+    const endNode = graph.nodes[pathIds[pathIds.length - 1]];
+
+    // 1. Khoảng cách Segments: Bắt đầu -> Node đầu
+    totalLength += Math.sqrt(Math.pow(startPos.x - startNode.x, 2) + Math.pow(startPos.y - startNode.y, 2));
+
+    // 2. Độ dài các cạnh trong Path
+    for (let i = 0; i < pathIds.length - 1; i++) {
+        const n1 = graph.nodes[pathIds[i]];
+        const n2 = graph.nodes[pathIds[i+1]];
+        totalLength += Math.sqrt(Math.pow(n1.x - n2.x, 2) + Math.pow(n1.y - n2.y, 2));
+    }
+
+    // 3. Khoảng cách Segments: Node cuối -> Đích thật
+    totalLength += Math.sqrt(Math.pow(endNode.x - targetPos.x, 2) + Math.pow(endNode.y - targetPos.y, 2));
+
+    return totalLength;
+}
+
+// Tính toán chi phí di chuyển (càng thấp càng gần) - VERSION 2: NODE-AWARE
+function calculateTravelCost(currentIsland, currentPos, targetData) {
+    if (!targetData) return 999999;
+    
+    let cost = 0;
+    // Hình phạt thay đổi đảo (Rất lớn vì phải qua Plaza và load map)
+    if (currentIsland !== targetData.island) {
+        cost += 10000;
+        // Nếu phải qua Plaza trung chuyển (Beach <-> Kingdom)
+        if ((currentIsland === 'beach' && targetData.island === 'kingdom') ||
+            (currentIsland === 'kingdom' && targetData.island === 'beach')) {
+            cost += 5000;
+        }
+        
+        // Với khác đảo, chúng ta chỉ dùng Euclidean làm ước lượng thô cho quãng đường sau khi chuyển map
+        const dx = currentPos.x - targetData.x;
+        const dy = currentPos.y - targetData.y;
+        cost += Math.sqrt(dx * dx + dy * dy);
+    } else {
+        // CÙNG ĐẢO: Sử dụng Đồ thị Node để tính quãng đường thật
+        const graph = (userNodeGraphs[currentIsland] && Object.keys(userNodeGraphs[currentIsland].nodes || {}).length > 0)
+            ? userNodeGraphs[currentIsland]
+            : window.SFL_ISLAND_GRAPHS[currentIsland];
+
+        if (graph && graph.nodes && graph.edges) {
+            const startNodeId = findNearestNode(graph, currentPos.x, currentPos.y);
+            const endNodeId = findNearestNode(graph, targetData.x, targetData.y);
+            const path = graphBFS(graph, startNodeId, endNodeId);
+            cost = calculateGraphPathLength(graph, path, currentPos, targetData);
+        } else {
+            // Fallback nếu không có graph
+            const dx = currentPos.x - targetData.x;
+            const dy = currentPos.y - targetData.y;
+            cost = Math.sqrt(dx * dx + dy * dy);
+        }
+    }
+    
+    return cost;
+}
+
+function sortDeliveryQueue() {
+    if (!memory.delivery_queue || memory.delivery_queue.length <= 1) return;
+
+    const currentIsland = getCurrentIsland();
+    const gameData = getGameData();
+    const currentPos = (gameData && gameData.player) ? gameData.player : { x: 0, y: 0 };
+
+    console.log("📐 [ROUTING]: Đang tối ưu hóa lộ trình giao hàng (Nearest Neighbor)...");
+    
+    memory.delivery_queue.sort((a, b) => {
+        const dataA = getNPCData(a);
+        const dataB = getNPCData(b);
+        const costA = calculateTravelCost(currentIsland, currentPos, dataA);
+        const costB = calculateTravelCost(currentIsland, currentPos, dataB);
+        return costA - costB;
+    });
+
+    console.log("📋 [QUEUE-SORTED]:", memory.delivery_queue.join(" -> "));
 }
 
 // Log analytics for later export
@@ -424,7 +534,7 @@ async function moveStraight(tx, ty) {
 // Conversion: 1s walk = 100 points
 const MASTER_NPC_DATA = {
     "plaza": {
-        "pete": { "x": 389, "y": 425, "island": "plaza" },
+        "pumpkin' pete": { "x": 389, "y": 425, "island": "plaza" },
         "peggy": { "x": 203, "y": 392, "island": "plaza" },
         "bert": { "x": 776, "y": 122, "island": "plaza" },
         "tywin": { "x": 64, "y": 84, "island": "plaza" },
@@ -573,146 +683,189 @@ async function navigateViaGraph(targetX, targetY) {
     return true;
 }
 
-async function scanDeliveries() {
-    console.log("--- 🕵️ QUÁET GIAO HÀNG ---");
-
-    // 1. Phá bỏ các bảng sai trước khi quét
-    const wrongModal = findElementByText('h1, h2, span', 'Calendar') ||
-        findElementByText('h1, h2, span', 'Events');
-
-    if (wrongModal) {
-        console.log("⚠️ Phát hiện bảng SAI (Lịch/Sự kiện). Đang thoát...");
-        const closeBtn = document.querySelector('img[src*="close"]') || document.querySelector('button[class*="close"]');
-        if (closeBtn) closeBtn.click();
-        else window.dispatchEvent(new MouseEvent('mousedown', { clientX: 10, clientY: 10, bubbles: true }));
-        await sleep(1500);
-        return;
+// Hỗ trợ xử lý các bảng xác nhận (Skip Order)
+async function handleSkipConfirmation() {
+    await sleep(300); // Giảm từ 1000ms -> 300ms
+    const confirmVerbs = ['confirm', 'yes', 'ok', 'skip'];
+    for (const verb of confirmVerbs) {
+        const btn = findElementByText('.material-button, button', verb);
+        if (btn) {
+            console.log(`✅ [XÁC NHẬN]: Đã thấy nút [${verb}]. Đang click...`);
+            await simulateFullClick(btn);
+            await sleep(500); // Giảm từ 1500ms -> 500ms
+            return true;
+        }
     }
+    return false;
+}
 
-    // 2. Kiểm tra bảng Codex đã mở chưa
-    console.log("🔍 [BƯỚC 1/2]: Kiểm tra trạng thái bảng Codex... (Sử dụng CSS Selector d-panel)");
-    if (!isAnyUIPanelOpen()) {
-        console.log("🎯 [BƯỚC 2/2]: Bảng chưa mở. Bắt đầu tìm ICON Vàng hoặc Heart để 'Gõ Cửa'...");
+async function scanDeliveries() {
+    if (!isRunning) return;
+    console.log("⚡ [INSTANT-SCAN]: Đang quét NPC trực tiếp qua ID ảnh trên lưới...");
+
+    // BẢN ĐỒ ID NPC (Trích xuất từ đường dẫn ảnh animated_webp)
+    const ID_MAP = {
+        "392": "betty",
+        "394": "pete",
+        "48": "bert",
+        "391": "peggy",
+        "393": "blacksmith",
+        "352": "raven",
+        "395": "raven",
+        "42": "cornwell",
+        "390": "tywin",
+        "43": "tinker",
+        "44": "grimbly",
+        "13": "timmy",
+        "56": "grimtooth"
+    };
+
+    const panelInfo = getOpenPanelInfo();
+    if (!panelInfo) {
+        console.log("🔍 [INIT]: Codex chưa mở. Đang tìm biểu tượng Quyển sách...");
         const allImages = Array.from(document.querySelectorAll('img'));
         let targetImg = allImages.find(img => {
             const rect = img.getBoundingClientRect();
-            // ĐẶC ĐIỂM QUYẾT ĐỊNH: Rộng đúng 31.5px, nằm ở Left > 50px (tránh Lịch)
-            const isCorrectSize = Math.abs(rect.width - 31.5) < 2;
-            const isSidebarZone = rect.left > 50 && rect.left < 150;
-
-            if (isCorrectSize && isSidebarZone) {
-                console.log(`🎯 PHÁT HIỆN: Kích thước ${rect.width.toFixed(2)}px tại Left ${rect.left.toFixed(1)}px`);
-                return true;
-            }
-            return false;
+            return (Math.abs(rect.width - 31.5) < 5) && (rect.left > 50 && rect.left < 200);
         });
 
         if (targetImg) {
-            console.log("📗 Đã tìm thấy Quyển sách Giao hàng! Đang click...");
+            console.log("🖱️ [CLICK]: Đã tìm thấy Icon Codex. Đang mở...");
             await simulateFullClick(targetImg);
-            await sleep(3000);
-            return;
+            await sleep(3000); 
         }
-
-        console.warn("❌ KHÔNG tìm thấy icon Giao hàng. Đang chờ...");
         return;
     }
 
-    console.log("✅ Codex đã mở. Đang quét biểu tượng TRÁI TIM (Đơn sẵn sàng)...");
-    const readyItems = [];
-    const gridItems = document.querySelectorAll('.grid > div');
+    // Đợi Grids xuất hiện (Tối đa 3 lần thử)
+    let grids = [];
+    for (let wait = 0; wait < 3; wait++) {
+        grids = panelInfo.el.querySelectorAll('.grid');
+        if (grids.length > 0) break;
+        console.log(`⏳ [WAIT]: Đang đợi lưới đơn hàng hiển thị (Lần ${wait+1})...`);
+        await sleep(1000);
+    }
 
-    for (const item of gridItems) {
-        // NHẬN DIỆN TIM ĐỎ: Dùng lại selector gốc đã được verify là chuẩn xác
-        const heartIcon = item.querySelector('img.absolute.top-0\\.5.right-0\\.5.w-3') ||
-            item.querySelector('img.absolute.top-0\\.5.right-0\\.5.sm\\:w-4');
+    if (!grids.length) {
+        console.warn("⚠️ [ERROR]: Không tìm thấy lưới đơn hàng.");
+        return;
+    }
 
-        if (heartIcon) {
-            console.log("❤️ PHÁT HIỆN: Trái tim đỏ Giao hàng!");
+    let totalItemsSkipped = 0;
+    let totalItemsReady = 0;
+    memory.delivery_queue = []; 
 
-            // LẬP TỨC CLICK CHỌN ĐƠN HÀNG (Phục hồi thao tác cũ)
-            console.log("👉 Đang click chọn đơn hàng...");
-            try {
-                heartIcon.parentElement.click();
-            } catch (e) {
-                simulateFullClick(item);
-            }
-            await sleep(1500); // Đợi bảng chi tiết bên phải tải dữ liệu
+    console.log("🧹 [PHASE 1]: Dọn dẹp đơn cũ màu Cam (Skip)...");
 
-            let npcName = "";
-            const itemHTML = item.innerHTML.toLowerCase();
-            
-            // CÁCH 1: Tìm tên NPC trực tiếp trong Avatar của thẻ (Nhanh & Chính xác nhất)
-            // Nhờ đã lọc Ổ khóa (Padlock), thẻ này chắc chắn là thẻ xịn, không sợ parse nhầm thẻ của Bert!
-            for (const name of KNOWN_NPCS) {
-                if (itemHTML.includes(name) || itemHTML.includes(`${name}.png`)) {
-                    npcName = name;
+    for (let gIndex = 0; gIndex < grids.length; gIndex++) {
+        let grid = grids[gIndex];
+        let items = Array.from(grid.querySelectorAll(':scope > div'));
+        
+        for (let i = 0; i < items.length; i++) {
+            if (!isRunning) return;
+            // Scan lại grids để tránh DOM bị stale sau khi skip
+            const currentGrids = document.querySelectorAll('.grid');
+            const currentItem = currentGrids[gIndex]?.querySelectorAll(':scope > div')[i];
+            if (!currentItem) continue;
+
+            const itemHTML = currentItem.innerHTML;
+            const isOrange = itemHTML.includes('rgb(240, 145, 0)') || itemHTML.includes('rgb(240,145,0)');
+            const padlockIcon = currentItem.querySelector('img[src*="lock"]') || currentItem.querySelector('img[src*="padlock"]');
+
+            if (isOrange && !padlockIcon) {
+                try { currentItem.click(); } catch (e) { simulateFullClick(currentItem); }
+                await sleep(500);
+
+                const dr = getOpenPanelInfo()?.el;
+                if (dr && (dr.textContent.includes("Skip in:") || dr.textContent.includes("24 hours"))) {
+                    console.log(`⏳ [SKIP]: Mục ${gIndex+1} đang chờ. Bỏ qua.`);
                     break;
                 }
-            }
 
-            // CÁCH 2: Nếu chưa tìm thấy từ ảnh, quét text trong bảng chi tiết bên phải
-            if (!npcName) {
-                const detailPanel = document.querySelector('.flex.flex-col.items-center.p-2') ||
-                    document.querySelector('.flex-1.flex.flex-col') ||
-                    document.querySelector('[role="dialog"]') || document.body;
-
-                const panelText = detailPanel ? detailPanel.textContent.toLowerCase() : "";
-                const panelHTML = detailPanel ? detailPanel.innerHTML.toLowerCase() : "";
-
-                console.log("📄 Đang quét tên NPC trong bảng chi tiết...");
-
-                for (const name of KNOWN_NPCS) {
-                    if (panelText.includes(name) || panelHTML.includes(name)) {
-                        npcName = name;
-                        break;
-                    }
+                const skipBtn = findElementByText('p, span, .material-button, button', 'Skip Order');
+                if (skipBtn) {
+                    console.log("⏭️ [SKIP]: Đang xóa đơn cũ...");
+                    await simulateFullClick(skipBtn);
+                    await handleSkipConfirmation();
+                    totalItemsSkipped++;
+                    await sleep(1000); 
+                    i--; // Quét lại vị trí này do danh sách bị dồn lên
                 }
-            }
-
-            if (npcName) {
-                readyItems.push(npcName);
-                console.log(`✅ Đã nhận diện đúng NPC: ${npcName.toUpperCase()}`);
-
-                // Đóng Codex ngay lập tức để chuẩn bị di chuyển
-                const closeBtn = document.querySelector('img[src*="close"]') || document.querySelector('button[class*="close"]');
-                if (closeBtn) {
-                    await simulateFullClick(closeBtn);
-                    await sleep(1000);
-                }
-
-                targetNPC = npcName;
-                currentTask = "TRAVEL";
-                isRunning = true;
-                saveMemory();
-                
-                // BẮT BUỘC DỪNG NGAY SAU KHI TÌM ĐƯỢC ĐƠN ĐẦU TIÊN
-                break;
-            } else {
-                console.error("⚠️ KHÔNG nhận diện được NPC trong bảng này! Sẽ dừng quét để tránh click bừa bãi.");
-                // BẮT BUỘC DỪNG ĐỂ KHÔNG QUÉT RỚT SANG CÁC TIM KHÁC! Chỉ xử lý 1 đơn tại 1 thời điểm.
-                break;
             }
         }
     }
 
-    if (readyItems.length > 0) {
-        targetNPC = readyItems[0].toLowerCase().trim();
-        console.log(`🎯 Mục tiêu: ${targetNPC.toUpperCase()}. Đang đóng Codex để đồng bộ...`);
+    console.log("📋 [PHASE 2]: Gom đơn hàng Trái Tim (Click Thẻ Cha -> Đọc Tên)...");
 
-        // 🏁 ĐÓNG CODEX NGAY LẬP TỨC 
-        await forceClosePanels();
-        await sleep(1000);
-        currentTask = "TRAVEL";
-    } else {
-        console.log("🧊 Không có đơn hàng nào sẵn sàng. ĐANG ĐÓNG Codex để chờ...");
-        await forceClosePanels();
-        await sleep(1000);
-        currentTask = "IDLE";
+    const scanGrids = document.querySelectorAll('.grid');
+    let lastReadNPC = ""; 
+
+    for (let gIdx = 0; gIdx < scanGrids.length; gIdx++) {
+        const items = scanGrids[gIdx].querySelectorAll(':scope > div');
+        console.log(`🔎 [SCAN]: Đang kiểm tra Mục ${gIdx + 1}...`);
+
+        for (const item of items) {
+            if (!isRunning) return;
+
+            // 1. Tìm Trái Tim để biết đơn đã sẵn sàng
+            const heartIcon = item.querySelector('img.absolute[class*="top-0.5"][class*="right-0.5"]');
+            
+            if (heartIcon) {
+                // 2. Click vào thẻ cha (thẻ div có cursor-pointer) để chắc chắn mở bảng Detail
+                const clickTarget = item.querySelector('div.cursor-pointer') || item;
+                console.log("🎯 [TARGET]: Thấy Trái Tim. Đang Click để đọc tên NPC...");
+                try { clickTarget.click(); } catch (e) { simulateFullClick(clickTarget); }
+                
+                let npcNameFound = "";
+                // 3. Đợi bảng Detail bên phải cập nhật nội dung
+                for (let retry = 0; retry < 6; retry++) {
+                    await sleep(400);
+                    const panel = getOpenPanelInfo()?.el;
+                    if (!panel) continue;
+
+                    // Đọc tên NPC từ thẻ <p class="capitalize text-xs"> trong bảng chi tiết
+                    const nameEl = panel.querySelector('p.capitalize.text-xs');
+                    if (nameEl && nameEl.textContent.trim().length > 2) {
+                        const currentName = nameEl.textContent.toLowerCase().trim();
+                        // Chống đọc nhầm tên cũ (đợi bảng cập nhật)
+                        if (currentName !== lastReadNPC || retry > 3) {
+                            npcNameFound = currentName;
+                            lastReadNPC = currentName;
+                            break;
+                        }
+                    }
+                }
+
+                if (npcNameFound) {
+                    if (!memory.delivery_queue.includes(npcNameFound)) {
+                        console.log(`✅ [GOM]: Đã nạp NPC: ${npcNameFound.toUpperCase()} vào hàng chờ.`);
+                        memory.delivery_queue.push(npcNameFound);
+                    }
+                    totalItemsReady++;
+                } else {
+                    console.warn("⚠️ [WARN]: Click rồi nhưng không đọc được tên NPC!");
+                }
+            }
+        }
     }
 
-    memory.ready_deliveries = readyItems;
-    saveMemory();
+    console.log(`📊 [HOÀN TẤT]: Skip: ${totalItemsSkipped} | Gom được: ${memory.delivery_queue.length} | Tổng đơn: ${totalItemsReady}`);
+    
+    if (memory.delivery_queue.length > 0) {
+        sortDeliveryQueue(); 
+        console.log("📝 [HÀNG CHỜ]: " + memory.delivery_queue.join(" -> ").toUpperCase());
+        const nextNPC = memory.delivery_queue[0]; 
+        console.log(`🚀 [GO]: Xuất phát ngay: ${nextNPC.toUpperCase()}!`);
+        targetNPC = nextNPC;
+        currentTask = "TRAVEL";
+        await forceClosePanels();
+        saveMemory();
+    } else {
+        console.log("🏁 [KẾT THÚC]: Hiện tại không có đơn nào sẵn sàng.");
+        currentTask = "IDLE";
+        await forceClosePanels();
+        saveMemory();
+    }
 }
 
 // --- HÀM ĐÓNG TẤT CẢ UI (NUCLEAR OPTION) ---
@@ -861,10 +1014,18 @@ async function interactWithNPC() {
 
         // KIỂM TRA TÍN HIỆU THÀNH CÔNG TỪ BRIDGE
         if (document.body.dataset.sflInteractSuccess === "true") {
-            console.log(`🎉 [XÁC NHẬN]: Đã nhận tín hiệu Giao hàng thành công từ Engine! Kết thúc chu kỳ.`);
+            console.log(`🎉 [XÁC NHẬN]: Đã nhận tín hiệu Giao hàng thành công cho ${targetNPC.toUpperCase()}!`);
+            
+            // XÓA NPC KHỎI HÀNG CHỜ
+            if (memory.delivery_queue && memory.delivery_queue.length > 0) {
+                const finished = memory.delivery_queue.shift();
+                console.log(`🗑️ [QUEUE]: Đã giao xong cho [${finished.toUpperCase()}]. Xóa khỏi hàng chờ.`);
+            }
+
             forceStopAllKeys();
             await sleep(1500);
-            currentTask = "IDLE";
+            currentTask = "IDLE"; // Về IDLE để lấy đơn tiếp theo từ queue
+            saveMemory();
             return;
         }
 
@@ -1018,10 +1179,14 @@ window.addEventListener('keyup', (e) => {
 });
 
 async function mainLoop() {
-    if (!isRunning && !isRecording) return;
+    // Luôn đảm bảo UI bảng điều khiển được hiển thị (24/7)
+    injectPremiumUI();
 
+    if (!isRunning && !isRecording) return;
+    
     try {
         await loadMemory();
+        // ... (phần còn lại)
 
         // Kiểm tra chuyển map để ưu tiên node [root]
         const currentIsland = getCurrentIsland();
@@ -1044,7 +1209,16 @@ async function mainLoop() {
 
         switch (currentTask) {
             case "IDLE":
-                await scanDeliveries();
+                // Kiểm tra hàng chờ trước khi quyết định quét lại
+                if (memory.delivery_queue && memory.delivery_queue.length > 0) {
+                    sortDeliveryQueue(); // Tái sáp xếp từ vị trí hiện tại sau mỗi lần giao
+                    const nextNPC = memory.delivery_queue[0];
+                    console.log(`📋 [QUEUE]: Hàng chờ còn ${memory.delivery_queue.length} đơn. Mục tiêu TIẾP THEO GẦN NHẤT: ${nextNPC.toUpperCase()}`);
+                    targetNPC = nextNPC;
+                    currentTask = "TRAVEL";
+                } else {
+                    await scanDeliveries();
+                }
                 break;
             case "TRAVEL":
                 let travelData = null;
@@ -1139,7 +1313,7 @@ window.addEventListener("message", (event) => {
 async function loop() {
     while (isRunning) {
         await mainLoop();
-        await sleep(500);
+        await sleep(200); // Giảm từ 500ms -> 200ms để tăng tốc quét lại
     }
 }
 
@@ -1401,7 +1575,10 @@ function initUIEvents() {
 
             if (isRunning) {
                 console.log("🚀 [HỆ THỐNG]: Bắt đầu tiến trình Giao hàng Tự động...");
-                currentTask = "IDLE";
+                // MỖI KHI NHẤN "BẮT ĐẦU" - BẮT BUỘC QUÉT MỚI TỪ ĐẦU
+                memory.delivery_queue = [];
+                currentTask = "IDLE"; 
+                saveMemory();
                 loop();
             } else {
                 console.log("🛑 [HỆ THỐNG]: Đã dừng tiến trình.");

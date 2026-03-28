@@ -72,7 +72,7 @@ const ISLAND_GRAPHS = {
             "tanggo midle 1": { x: 376, y: 518 },
             "tanggo midle 2": { x: 475, y: 518 },
             "tanggo-ps": { x: 475, y: 423 },
-            "old salty midle": { x: 376, y: 242 },
+            "old salty midle": { x: 386, y: 242 },
             "old salty midle 2": { x: 246, y: 241 },
             "old salty-ps": { x: 68, y: 223 },
             "pharaoh-ps": { x: 68, y: 95 },
