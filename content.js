@@ -254,32 +254,32 @@ async function checkLicenseRemote() {
         if (!data) return false;
 
         // 1. Kiểm tra trạng thái
-        if (data.status !== "active") return false;
+        if (data.status !== "active") {
+            licenseStatus = "INACTIVE";
+            return false;
+        }
 
         // 2. Kiểm tra ngày hết hạn
         const exp = new Date(data.expiration);
-        if (exp < new Date()) return false;
+        if (exp < new Date()) {
+            licenseStatus = "EXPIRED";
+            return false;
+        }
 
         // 3. HWID Binding
         if (!data.hwid) {
             console.log("⚡ [LICENSE]: Key chưa kích hoạt. Đang gán HWID vào Key...");
+            // Gửi lệnh kích hoạt (gán HWID)
+            await new Promise(r => chrome.runtime.sendMessage({ action: "ACTIVATE_LICENSE", key, hwid }, r));
+            
             isLicensed = true;
             licenseStatus = "VALID";
             return true;
-        } else if (data.hwid !== id) {
+        } else if (data.hwid !== hwid) {
             // Máy khác đang dùng Key này
             licenseStatus = "MISMATCH";
             console.error("❌ [SECURITY]: Cảnh báo! Key này đã được dùng ở máy khác.");
             return false;
-        }
-
-        // Kiểm tra ngày hết hạn
-        if (data.expiration) {
-            const expDate = new Date(data.expiration);
-            if (expDate < new Date()) {
-                licenseStatus = "EXPIRED";
-                return false;
-            }
         }
 
         isLicensed = true;
@@ -309,6 +309,7 @@ function renderLicenseModal() {
     let msg = "Vui lòng nhập License Key để sử dụng Bot";
     if (licenseStatus === "MISMATCH") msg = "❌ Key này đã được dùng trên máy khác!";
     if (licenseStatus === "EXPIRED") msg = "❌ Key của bạn đã hết hạn!";
+    if (licenseStatus === "INACTIVE") msg = "❌ Key này hiện đang bị khóa!";
     if (licenseStatus === "NOT_FOUND") msg = "❌ Không tìm thấy Key này trên hệ thống!";
 
     modal.innerHTML = `
@@ -1528,21 +1529,21 @@ async function loop() {
     await loadMemory();
     await getUniqueHWID(); 
     
-    // Hiển thị UI ngay lập tức để người dùng có thể chỉnh cài đặt (Tốc độ, ...)
+    // Hiển thị UI ngay lập tức
     injectPremiumUI();
 
-    // Nếu bot đang ở trạng thái chạy (Auto-Resume), thực hiện check license ngầm để chạy tiếp
-    if (isRunning) {
-        setTimeout(async () => {
-            const valid = await checkLicenseRemote();
-            if (valid) {
-                console.log(`🚀 [RESUME]: License hợp lệ. Tự động khôi phục nhiệm vụ: ${currentTask}`);
-                loop(); 
-            } else {
-                console.warn("❌ [SECURITY]: License hết hạn khi Resume. Khóa Bot.");
-                renderLicenseModal();
-            }
-        }, 1500);
+    // KIỂM TRA BẢN QUYỀN NGAY KHI VÀO (STARTUP CHECK)
+    const valid = await checkLicenseRemote();
+    
+    if (valid) {
+        console.log(`✅ [LICENSE]: Bản quyền hợp lệ (${ownerName}).`);
+        if (isRunning) {
+            console.log(`🚀 [RESUME]: Tự động khôi phục nhiệm vụ: ${currentTask}`);
+            loop(); 
+        }
+    } else {
+        console.warn("❌ [SECURITY]: Cần kích hoạt bản quyền để sử dụng.");
+        renderLicenseModal();
     }
 })();
 
