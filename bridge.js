@@ -128,6 +128,7 @@
             // CHIẾN LƯỢC D: GIAO HÀNG NATIVE QUA ORDER.DELIVERED (Đúng event của gameMachine)
             // Đã xác nhận: state.can({ type: "SPEAK" }) = false, nhưng state.can("order.delivered") hoạt động
             // gameMachine chấp nhận "order.delivered" ở mọi trạng thái "playing"
+            window.__SFL_LAST_PLAN = "PLAN-D (XSTATE-NATIVE)";
             if (window.__SFL_GAME_SERVICE && window.__SFL_GAME_SERVICE.send) {
                 try {
                     const svc = window.__SFL_GAME_SERVICE;
@@ -170,6 +171,7 @@
             // CHIẾN LƯỢC X: BÀN TAY VÔ HÌNH (XSTATE INJECTION DỄ QUẢN LÝ)
             if (document.body.dataset.sflInteractSuccess === "true") return true;
 
+            window.__SFL_LAST_PLAN = "PLAN-X (XSTATE-INJECT)";
             if (window.__SFL_GAME_SERVICE && window.__SFL_GAME_SERVICE.send) {
                 console.log("🌌 [PLAN-X]: Đang sử dụng Hệ thống Nghe lén XState Truyền thống...");
                 
@@ -220,6 +222,7 @@
             // CHIẾN LƯỢC E: GỌI THẲNG KEYDOWN BẰNG GHOST-EVENT
             if (document.body.dataset.sflInteractSuccess === "true") return true;
 
+            window.__SFL_LAST_PLAN = "PLAN-E (GHOST-KEYBOARD)";
             if (window.__SFL_LISTENERS && window.__SFL_LISTENERS.keydown && window.__SFL_LISTENERS.keydown.length > 0) {
                 console.log(`⌨️ [PLAN-E]: Bắn phím E thông qua Mạng lưới Bị Giam Giữ...`);
                 // Tạo Ghost-Event (Object giả lập Event thật 100% để lách luật V8 isTrusted)
@@ -240,6 +243,7 @@
             // CHIẾN LƯỢC Y: REACT FIBER PROP INJECTION (Bypass Canvas Hoàn Toàn)
             if (document.body.dataset.sflInteractSuccess === "true") return true;
 
+            window.__SFL_LAST_PLAN = "PLAN-Y (FIBER-PROP-INJECT)";
             console.log(`📡 [PLAN-Y]: Quét sâu React Fiber để tìm Rễ gốc Hàm Tương Tác...`);
             if (canvas) {
                 const keys = Object.keys(canvas).filter(k => k.startsWith('__react'));
@@ -272,6 +276,7 @@
             }
 
             // CHIẾN LƯỢC A: DÙNG ENGINE (PHASER)
+            window.__SFL_LAST_PLAN = "PLAN-A (PHASER-EMIT)";
             if (engine.latestScene && engine.latestSn && engine.latestSn.game) {
                 usingEngine = true;
                 const cam = engine.latestScene.cameras.main;
@@ -312,6 +317,7 @@
             }
 
             // CHIẾN LƯỢC B: BLIND-FIRE (TOÁN HỌC TƯƠNG ĐỐI TỪ GPS)
+            window.__SFL_LAST_PLAN = "PLAN-B (BLIND-FIRE-GPS)";
             if (!usingEngine || targetPoints.length === 0) {
                 console.warn(`⚠️ [BLIND-FIRE]: Kích hoạt chiến lược ngắm bắn Toán học (Bỏ qua Engine)...`);
                 if (!myPos || !NPC_COORDS[npcName.toLowerCase()]) {
@@ -497,6 +503,7 @@
 
                                     if (eventType.includes('DELIVERED') || eventType.includes('COMPLETED')) {
                                         console.log(`🎊 [XSTATE-OMNI]: Phát hiện tín hiệu HOÀN THÀNH từ Server!`);
+                                        document.body.dataset.sflInteractMethod = window.__SFL_LAST_PLAN || "EXTERNAL_COMMAND";
                                         document.body.dataset.sflInteractSuccess = "true";
                                     }
                                 }

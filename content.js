@@ -158,23 +158,34 @@ function findElementByText(selector, text) {
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Load memory from file/local storage
+// Tải toàn bộ trạng thái từ Storage (Tăng cường Resilience)
 async function loadMemory() {
     return new Promise((resolve) => {
-        chrome.storage.local.get(['sfl_memory'], (result) => {
+        chrome.storage.local.get(['sfl_memory', 'isRunning', 'currentTask', 'targetNPC', 'targetIsland'], (result) => {
             if (result.sfl_memory) {
-                // Hợp nhất với cấu trúc mặc định để không mất thuộc tính mới
                 memory = { ...memory, ...result.sfl_memory };
-                // Chốt lại giá trị mặc định nếu bị undefined từ storage
                 if (typeof memory.speedMultiplier !== 'number') memory.speedMultiplier = 1.0;
             }
+            if (result.isRunning !== undefined) isRunning = result.isRunning;
+            if (result.currentTask !== undefined) currentTask = result.currentTask;
+            if (result.targetNPC !== undefined) targetNPC = result.targetNPC;
+            if (result.targetIsland !== undefined) targetIsland = result.targetIsland;
+            
+            isAutoEnabled = isRunning; // Đồng bộ biến điều hướng
             resolve();
         });
     });
 }
 
-// Save memory
+// Lưu toàn bộ trạng thái sống (Persistent State Machine)
 function saveMemory() {
-    chrome.storage.local.set({ 'sfl_memory': memory });
+    chrome.storage.local.set({ 
+        'sfl_memory': memory,
+        'isRunning': isRunning,
+        'currentTask': currentTask,
+        'targetNPC': targetNPC,
+        'targetIsland': targetIsland
+    });
 }
 
 // --- TIỆN ÍCH TỌA ĐỘ VÀ ĐỊNH TUYẾN THÔNG MINH ---
@@ -296,23 +307,20 @@ async function logAnalytics(data) {
     });
 }
 
-// Emulate Arrow keys for movement (Keyboard Engine 3.0 - Full SFL Support)
-// Emulate Arrow keys for movement with coordinate tracking
+// Emulate Arrow keys for movement (Keyboard Engine 3.0 - Single Direction)
 async function moveCharacter(direction, duration = 500) {
     const adjustedDuration = duration * (memory.speedMultiplier || 1.0);
-    const keys = { 'up': 'ArrowUp', 'down': 'ArrowDown', 'left': 'ArrowLeft', 'right': 'ArrowRight' };
-    const key = keys[direction] || direction;
+    const keysMap = { 'up': 'ArrowUp', 'down': 'ArrowDown', 'left': 'ArrowLeft', 'right': 'ArrowRight' };
+    const key = keysMap[direction] || direction;
     const keyCodes = { 'ArrowUp': 38, 'ArrowDown': 40, 'ArrowLeft': 37, 'ArrowRight': 39 };
     const keyCode = keyCodes[key];
 
-    // Update Internal Coordinate Grid
+    // Cập nhật tọa độ nội bộ
     const distance = duration * BASE_SPEED * (memory.speedMultiplier || 1.0);
     if (direction === 'up') currentY -= distance;
     if (direction === 'down') currentY += distance;
     if (direction === 'left') currentX -= distance;
     if (direction === 'right') currentX += distance;
-
-    // console.log(`🚀 [COORD]: X: ${Math.round(currentX)} | Y: ${Math.round(currentY)} | Dir: ${direction.toUpperCase()}`);
 
     document.body.focus();
     const targets = [window, document, ...Array.from(document.querySelectorAll('canvas'))];
@@ -327,7 +335,7 @@ async function moveCharacter(direction, duration = 500) {
     clearInterval(interval);
     const upParams = { key, code: key, keyCode, which: keyCode, bubbles: true, cancelable: true, view: window };
     targets.forEach(t => t.dispatchEvent(new KeyboardEvent('keyup', upParams)));
-    activeKey = null; // Clear dead reckoning tracking
+    activeKey = null; 
 
     await sleep(50);
 }
@@ -484,7 +492,10 @@ async function moveTowardsTarget(tx, ty) {
 }
 
 // Hàm di chuyển thẳng tuyệt đối (Dùng để đi giữa các node trong Graph)
-// Không gọi A* (findPath) để tránh việc tính toán lại gây kẹt
+// - Axis-aligned: X trước, Y sau
+// - Dynamic Duration: 800ms (>100px), 70ms (<25px)
+// - Node Snapping: Sai số < 14px
+// - Evasive Jiggle: Stuck sau 3 hiệp (0.5s), lách vuông góc 150ms
 async function moveStraight(tx, ty) {
     let stuckCount = 0;
     let lastX = 0, lastY = 0;
@@ -499,10 +510,14 @@ async function moveStraight(tx, ty) {
         const dx = tx - curX;
         const dy = ty - curY;
 
-        // Chạm đích (20px)
-        if (Math.abs(dx) < 20 && Math.abs(dy) < 20) break;
+        // --- NODE SNAPPING (Sai số < 14px) ---
+        if (Math.abs(dx) < 14 && Math.abs(dy) < 14) {
+            console.log(`🎯 [SNAP]: Đã neo thành công tại (${Math.round(curX)}, ${Math.round(curY)})`);
+            break;
+        }
 
-        // Kiểm tra kẹt (Nới lỏng hơn so với moveTowardsTarget)
+        // --- INSTANT REFLEX (Phát hiện kẹt sau 3 hiệp / ~0.5 giây) ---
+        // Tại sao 3 hiệp? Vì mỗi hiệp moveCharacter + sleep mất khoảng 150ms-800ms.
         if (Math.abs(curX - lastX) < 1 && Math.abs(curY - lastY) < 1) {
             stuckCount++;
         } else {
@@ -510,23 +525,54 @@ async function moveStraight(tx, ty) {
         }
         lastX = curX; lastY = curY;
 
-        if (stuckCount > 25) {
-            console.warn(`🚧 [STUCK]: Kẹt khi đi thẳng tới (${Math.round(tx)}, ${Math.round(ty)}). Thử nhích nhẹ...`);
-            await moveCharacter('up', 100);
-            await moveCharacter('down', 100);
+        // --- INSTANT REFLEX (Lách vuông góc 90 độ) ---
+        if (stuckCount >= 3) {
+            console.warn(`🚧 [STUCK-REFLEX]: Bị chặn! Thực hiện LÁCH VUÔNG GÓC 150ms...`);
+            
+            // Xác định trục đang đi để lách theo trục còn lại
+            const isMovingX = Math.abs(dx) >= 14;
+            const evasiveDir = isMovingX 
+                ? (stuckCount % 2 === 0 ? 'up' : 'down') 
+                : (stuckCount % 2 === 0 ? 'left' : 'right');
+
+            console.log(`👟 [JIGGLE]: Nhích sang [${evasiveDir.toUpperCase()}] trong 150ms.`);
+            await moveCharacter(evasiveDir, 150);
+            
             stuckCount = 0;
+            continue;
         }
 
-        // Di chuyển Axis-Aligned với thời gian nhấn phím dựa trên quãng đường
-        const moveDist = Math.max(Math.abs(dx), Math.abs(dy));
-        const dynamicDuration = Math.min(Math.max(moveDist * 4.5, 150), 800);
+        // --- DYNAMIC DURATION & AXIS-ALIGNED (X sau đó mới đến Y) ---
+        let moveDir = "";
+        let dist = 0;
 
-        if (Math.abs(dx) > 20) {
-            await moveCharacter(dx > 0 ? 'right' : 'left', dynamicDuration);
-        } else if (Math.abs(dy) > 20) {
-            await moveCharacter(dy > 0 ? 'down' : 'up', dynamicDuration);
+        if (Math.abs(dx) >= 14) {
+            // Ưu tiên trục X
+            moveDir = dx > 0 ? 'right' : 'left';
+            dist = Math.abs(dx);
+        } else if (Math.abs(dy) >= 14) {
+            // Sau đó mới đến trục Y
+            moveDir = dy > 0 ? 'down' : 'up';
+            dist = Math.abs(dy);
         }
-        await sleep(10);
+
+        if (moveDir) {
+            let duration = 0;
+            if (dist > 100) {
+                duration = 800; // Chạy nhanh
+                console.log(`🏃 [DYNAMIC]: Chạy nhanh (${Math.round(dist)}px) -> 800ms`);
+            } else if (dist < 25) {
+                duration = 70; // Micro-tuning (Nhích vi mô)
+                console.log(`🤏 [MICRO-TUNING]: Nhích nhẹ (${Math.round(dist)}px) -> 70ms`);
+            } else {
+                // Tuyến tính giữa 25px và 100px (70ms đến 800ms)
+                duration = 70 + (dist - 25) * (730 / 75);
+            }
+
+            await moveCharacter(moveDir, duration);
+        }
+        
+        await sleep(50); // Nhịp nghỉ ngắn để engine cập nhật
     }
 }
 
@@ -548,13 +594,13 @@ const MASTER_NPC_DATA = {
         "grimtooth": { "x": 783, "y": 370, "island": "plaza" }
     },
     "beach": {
-        "corale": { "x": -350, "y": 120, "island": "beach" },
-        "tango": { "x": 488, "y": 411, "island": "beach" },
-        "old salty": { "x": -400, "y": 0, "island": "beach" },
-        "miranda": { "x": 0, "y": 0, "island": "beach" },
-        "pharaoh": { "x": -500, "y": -300, "island": "beach" },
-        "finn": { "x": 250, "y": -80, "island": "beach" },
-        "finley": { "x": 0, "y": 0, "island": "beach" }
+        "corale": { "x": 244, "y": 711, "island": "beach" },
+        "tango": { "x": 475, "y": 423, "island": "beach" },
+        "old salty": { "x": 68, "y": 223, "island": "beach" },
+        "miranda": { "x": 475, "y": 423, "island": "beach" },
+        "pharaoh": { "x": 68, "y": 95, "island": "beach" },
+        "finn": { "x": 211, "y": 589, "island": "beach" },
+        "finley": { "x": 245, "y": 457, "island": "beach" }
     },
     "kingdom": {
         "gambit": { "x": 250, "y": 150, "island": "kingdom" },
@@ -664,20 +710,9 @@ async function navigateViaGraph(targetX, targetY) {
 
         if (!isRunning) break;
 
-        // BƯỚC 1: Di chuyển ngang đến x của waypoint (giữ y cũ)
-        const midData = getGameData();
-        if (midData && midData.player) {
-            if (Math.abs(midData.player.x - wp.x) > 20) {
-                await moveStraight(wp.x, midData.player.y);
-            }
-        }
-        // BƯỚC 2: Di chuyển dọc đến y của waypoint
-        const midData2 = getGameData();
-        if (midData2 && midData2.player) {
-            if (Math.abs(midData2.player.y - wp.y) > 20) {
-                await moveStraight(midData2.player.x, wp.y);
-            }
-        }
+        // Gọi moveStraight một lần duy nhất, hàm này đã tự xử lý (X trước, Y sau) và Dynamic Duration
+        await moveStraight(wp.x, wp.y);
+        
         console.log(`📍 [WAYPOINT]: Đã tới ${nodeName} tại (${Math.round(wp.x)}, ${Math.round(wp.y)})`);
     }
     return true;
@@ -862,9 +897,14 @@ async function scanDeliveries() {
         await forceClosePanels();
         saveMemory();
     } else {
-        console.log("🏁 [KẾT THÚC]: Hiện tại không có đơn nào sẵn sàng.");
+        console.log("🏁 [AUTO-STOP]: Hiện tại không có đơn nào sẵn sàng. Dừng hệ thống để tiết kiệm CPU...");
+        
+        isRunning = false;
+        isAutoEnabled = false;
         currentTask = "IDLE";
+        
         await forceClosePanels();
+        updateAutoBtnUI(); // Đồng bộ lại nút bấm thành START
         saveMemory();
     }
 }
@@ -1015,7 +1055,8 @@ async function interactWithNPC() {
 
         // KIỂM TRA TÍN HIỆU THÀNH CÔNG TỪ BRIDGE
         if (document.body.dataset.sflInteractSuccess === "true") {
-            console.log(`🎉 [XÁC NHẬN]: Đã nhận tín hiệu Giao hàng thành công cho ${targetNPC.toUpperCase()}!`);
+            const method = document.body.dataset.sflInteractMethod || "UNKNOWN";
+            console.log(`🎉 [XÁC NHẬN]: Đã nhận tín hiệu Giao hàng thành công cho ${targetNPC.toUpperCase()} bằng [${method}]!`);
             
             // XÓA NPC KHỎI HÀNG CHỜ
             if (memory.delivery_queue && memory.delivery_queue.length > 0) {
@@ -1125,8 +1166,15 @@ async function interactWithNPC() {
                 await simulateFullClick(actionBtn);
                 
                 if (isTerminal || btnText.toLowerCase().includes('deliver') || btnText.toLowerCase().includes('complete')) {
-                    console.log(`🎉 [XÁC NHẬN]: Đã click nút CHỐT ĐƠN! Giao hàng thành công!`);
+                    console.log(`🎉 [XÁC NHẬN]: Đã click nút CHỐT ĐƠN [MANUAL-UI-CLICK]! Giao hàng thành công!`);
                     forceStopAllKeys(); // Đảm bảo dừng mọi di chuyển (nếu có)
+                    
+                    // XÓA NPC KHỎI HÀNG CHỜ (Trường hợp click tay vào nút UI)
+                    if (memory.delivery_queue && memory.delivery_queue.length > 0) {
+                        const finished = memory.delivery_queue.shift();
+                        console.log(`🗑️ [QUEUE]: Đã giao xong cho [${finished.toUpperCase()}]. Xóa khỏi hàng chờ.`);
+                    }
+
                     await sleep(3000);
                     currentTask = "IDLE"; // Chuyển về rảnh rỗi để quét mạng lệnh mới
                     saveMemory();
@@ -1273,6 +1321,10 @@ async function mainLoop() {
                 await interactWithNPC();
                 break;
         }
+        
+        // --- PERSISTENCE: Lưu trạng thái sau mỗi bước nhảy của State Machine ---
+        saveMemory();
+        
     } catch (e) {
         console.error("Main Loop Error:", e);
     }
@@ -1318,11 +1370,21 @@ async function loop() {
     }
 }
 
-// Auto-start UI
-setTimeout(() => {
-    console.log("🚀 [SYSTEM]: Initializing Premium UI...");
-    injectPremiumUI();
-}, 2000);
+// --- INIT & PERSISTENCE RESUME ---
+(async () => {
+    console.log("📡 [SYSTEM]: Khởi động Engine Persistence...");
+    await loadMemory();
+    
+    // Đợi game ổn định rồi mới hiện UI và Resume
+    setTimeout(() => {
+        injectPremiumUI();
+        
+        if (isRunning) {
+            console.log(`🚀 [RESUME]: Phát hiện trạng thái ĐANG CHẠY. Tự động khôi phục nhiệm vụ: ${currentTask} [NPC: ${targetNPC || 'N/A'}]`);
+            loop(); 
+        }
+    }, 2000);
+})();
 
 // --- UPDATED COORDINATE LOGIC ---
 // Đã khai báo ở trên đầu file, không khai báo lại để tránh lỗi Lint
@@ -1549,6 +1611,23 @@ function injectPremiumUI() {
     initUIEvents();
 }
 
+// Đồng bộ hóa Giao diện Nút Bấm Tự động
+function updateAutoBtnUI() {
+    const autoBtn = document.getElementById('auto_btn');
+    if (!autoBtn) return;
+    
+    autoBtn.innerText = isAutoEnabled ? '🛑 DỪNG GIAO HÀNG (STOP)' : '🚀 BẮT ĐẦU GIAO HÀNG (START)';
+    
+    // Màu sắc theo trạng thái
+    if (isAutoEnabled) {
+        autoBtn.style.background = '#ff4757'; // Màu Đỏ khi đang chạy (để dừng)
+        autoBtn.style.color = '#fff';
+    } else {
+        autoBtn.style.background = '#333'; // Màu Xám khi đang dừng
+        autoBtn.style.color = '#fff';
+    }
+}
+
 function initUIEvents() {
     const dBtn = document.getElementById('deep_scan_btn');
     if (dBtn) dBtn.onclick = () => {
@@ -1560,19 +1639,15 @@ function initUIEvents() {
 
     const autoBtn = document.getElementById('auto_btn');
     if (autoBtn) {
-        // Khởi tạo giao diện theo trạng thái mặc định (DỪNG)
-        autoBtn.innerText = isAutoEnabled ? '🛑 DỪNG GIAO HÀNG (STOP)' : '🚀 BẮT ĐẦU GIAO HÀNG (START)';
-        autoBtn.style.background = isAutoEnabled ? '#2ed573' : '#333';
-        autoBtn.style.color = isAutoEnabled ? '#111' : '#fff';
+        // Khởi tạo giao diện theo trạng thái mặc định
+        updateAutoBtnUI();
 
         autoBtn.onclick = () => {
             isAutoEnabled = !isAutoEnabled;
             isRunning = isAutoEnabled;
+            
+            updateAutoBtnUI();
             chrome.storage.local.set({ isRunning: isAutoEnabled });
-
-            autoBtn.innerText = isAutoEnabled ? '🛑 DỪNG GIAO HÀNG (STOP)' : '🚀 BẮT ĐẦU GIAO HÀNG (START)';
-            autoBtn.style.background = isAutoEnabled ? '#ff4757' : '#333';
-            autoBtn.style.color = '#fff';
 
             if (isRunning) {
                 console.log("🚀 [HỆ THỐNG]: Bắt đầu tiến trình Giao hàng Tự động...");
@@ -1584,6 +1659,7 @@ function initUIEvents() {
             } else {
                 console.log("🛑 [HỆ THỐNG]: Đã dừng tiến trình.");
                 currentTask = "IDLE";
+                saveMemory();
             }
         };
     }
