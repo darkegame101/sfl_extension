@@ -150,7 +150,7 @@ function findElementByText(selector, text) {
         // LOẠI TRỪ UI: Không lấy các phần tử nằm trong Bảng Codex hoặc Dialog (trừ khi chính nó là mục tiêu)
         const isUI = el.closest('.fixed, [role="dialog"], .bg-brown-600, .bg-blue-600');
         // Nếu chúng ta đang tìm modal "Go Home", hoặc các nút Skip/Xác nhận thì ĐƯỢC PHÉP tìm trong UI
-        if (targetText.includes('home') || targetText.includes('go home') || targetText.includes('return') || 
+        if (targetText.includes('home') || targetText.includes('go home') || targetText.includes('return') ||
             targetText.includes('skip') || targetText.includes('confirm') || targetText.includes('yes')) {
             return true;
         }
@@ -176,11 +176,11 @@ async function loadMemory() {
             if (result.currentTask !== undefined) currentTask = result.currentTask;
             if (result.targetNPC !== undefined) targetNPC = result.targetNPC;
             if (result.targetIsland !== undefined) targetIsland = result.targetIsland;
-            
+
             // LICENSE PERSISTENCE
             if (result.licenseKey) licenseKey = result.licenseKey;
             if (result.userHWID) userHWID = result.userHWID;
-            
+
             isAutoEnabled = isRunning; // Đồng bộ biến điều hướng
             resolve();
         });
@@ -189,7 +189,7 @@ async function loadMemory() {
 
 // Lưu toàn bộ trạng thái sống (Persistent State Machine)
 function saveMemory() {
-    chrome.storage.local.set({ 
+    chrome.storage.local.set({
         'sfl_memory': memory,
         'isRunning': isRunning,
         'currentTask': currentTask,
@@ -206,7 +206,7 @@ const FIREBASE_DB_URL = "https://sfl-d26a3-default-rtdb.asia-southeast1.firebase
 // 1. Tạo mã định danh máy tính duy nhất (Persistent Fingerprint)
 async function getUniqueHWID() {
     if (userHWID) return userHWID;
-    
+
     // Tạo ID ngẫu nhiên nếu chưa có
     const p = await new Promise(r => chrome.storage.local.get(['userHWID'], r));
     if (p.userHWID) {
@@ -228,7 +228,7 @@ async function getUniqueHWID() {
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     userHWID = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
-    
+
     chrome.storage.local.set({ userHWID });
     return userHWID;
 }
@@ -240,11 +240,11 @@ async function checkLicenseRemote() {
 
     console.log(`📡 [LICENSE]: Đang xác thực Key [${key}] qua Background...`);
     const hwid = await getUniqueHWID();
-    
+
     try {
         // Gửi tin nhắn tới Background để check GET
         const response = await new Promise(r => chrome.runtime.sendMessage({ action: "CHECK_LICENSE", key }, r));
-        
+
         if (!response || !response.success) {
             console.error("❌ License Check Error:", response?.error || "Unknown error");
             return false;
@@ -271,7 +271,7 @@ async function checkLicenseRemote() {
             console.log("⚡ [LICENSE]: Key chưa kích hoạt. Đang gán HWID vào Key...");
             // Gửi lệnh kích hoạt (gán HWID)
             await new Promise(r => chrome.runtime.sendMessage({ action: "ACTIVATE_LICENSE", key, hwid }, r));
-            
+
             isLicensed = true;
             licenseStatus = "VALID";
             return true;
@@ -328,11 +328,11 @@ function renderLicenseModal() {
     document.getElementById('activate_btn').onclick = async () => {
         const key = document.getElementById('license_input').value.trim();
         if (key.length < 5) return;
-        
+
         document.getElementById('activate_btn').innerText = "ĐANG KIỂM TRA...";
         licenseKey = key;
         const valid = await checkLicenseRemote();
-        
+
         if (valid) {
             saveMemory();
             window.location.reload(); // Tải lại để khởi động bot
@@ -345,7 +345,7 @@ function renderLicenseModal() {
 function getNPCData(name) {
     if (!name) return null;
     name = name.toLowerCase().trim();
-    
+
     // 1. Kiểm tra trực tiếp trong Bộ nhớ Tạm (User Record)
     if (memory.npcs[name]) return { island: memory.npcs[name].island || "plaza", ...memory.npcs[name] };
 
@@ -380,7 +380,7 @@ function calculateGraphPathLength(graph, pathIds, startPos, targetPos) {
     // 2. Độ dài các cạnh trong Path
     for (let i = 0; i < pathIds.length - 1; i++) {
         const n1 = graph.nodes[pathIds[i]];
-        const n2 = graph.nodes[pathIds[i+1]];
+        const n2 = graph.nodes[pathIds[i + 1]];
         totalLength += Math.sqrt(Math.pow(n1.x - n2.x, 2) + Math.pow(n1.y - n2.y, 2));
     }
 
@@ -393,7 +393,7 @@ function calculateGraphPathLength(graph, pathIds, startPos, targetPos) {
 // Tính toán chi phí di chuyển (càng thấp càng gần) - VERSION 2: NODE-AWARE
 function calculateTravelCost(currentIsland, currentPos, targetData) {
     if (!targetData) return 999999;
-    
+
     let cost = 0;
     // Hình phạt thay đổi đảo (Rất lớn vì phải qua Plaza và load map)
     if (currentIsland !== targetData.island) {
@@ -403,7 +403,7 @@ function calculateTravelCost(currentIsland, currentPos, targetData) {
             (currentIsland === 'kingdom' && targetData.island === 'beach')) {
             cost += 5000;
         }
-        
+
         // Với khác đảo, chúng ta chỉ dùng Euclidean làm ước lượng thô cho quãng đường sau khi chuyển map
         const dx = currentPos.x - targetData.x;
         const dy = currentPos.y - targetData.y;
@@ -426,7 +426,7 @@ function calculateTravelCost(currentIsland, currentPos, targetData) {
             cost = Math.sqrt(dx * dx + dy * dy);
         }
     }
-    
+
     return cost;
 }
 
@@ -438,7 +438,7 @@ function sortDeliveryQueue() {
     const currentPos = (gameData && gameData.player) ? gameData.player : { x: 0, y: 0 };
 
     console.log("📐 [ROUTING]: Đang tối ưu hóa lộ trình giao hàng (Nearest Neighbor)...");
-    
+
     memory.delivery_queue.sort((a, b) => {
         const dataA = getNPCData(a);
         const dataB = getNPCData(b);
@@ -488,7 +488,7 @@ async function moveCharacter(direction, duration = 500) {
     clearInterval(interval);
     const upParams = { key, code: key, keyCode, which: keyCode, bubbles: true, cancelable: true, view: window };
     targets.forEach(t => t.dispatchEvent(new KeyboardEvent('keyup', upParams)));
-    activeKey = null; 
+    activeKey = null;
 
     await sleep(50);
 }
@@ -537,7 +537,7 @@ async function executePathToNPC(npcData) {
         // ƯU TIÊN: Điều hướng qua đồ thị Waypoint Graph
         console.log(`🗺️ [GRAPH-NAV]: Bắt đầu điều hướng qua đồ thị liên thông...`);
         const graphDone = await navigateViaGraph(target.x, target.y);
-        
+
         if (!graphDone) {
             // FALLBACK: Di chuyển thẳng nếu không có graph
             console.warn(`⚠️ [GRAPH-NAV]: Không dùng được đồ thị. Dùng di chuyển thẳng...`);
@@ -605,15 +605,15 @@ async function moveTowardsTarget(tx, ty) {
         // BỊ KẸT: Kích hoạt thuật toán gỡ rối
         if (stuckCount > 8) {
             console.log(`🔄 [STUCK]: Phát hiện vật cản tại (${Math.round(curX)}, ${Math.round(curY)}). Đang lách...`);
-            
+
             // THUẬT TOÁN LÁCH (ADVANCED JIGGLE): Di chuyển vuông góc với hướng đích
             const moveDir = Math.abs(dx) > Math.abs(dy) ? (dy > 0 ? 'down' : 'up') : (dx > 0 ? 'right' : 'left');
             const sideDirs = (moveDir === 'up' || moveDir === 'down') ? ['left', 'right'] : ['up', 'down'];
-            const evasiveDir = sideDirs[stuckCount % 2]; 
-            
+            const evasiveDir = sideDirs[stuckCount % 2];
+
             console.log(`🚦 [LÁCH]: Thử đi hướng [${evasiveDir.toUpperCase()}] để vòng qua vật cản.`);
-            await moveCharacter(evasiveDir, 400); 
-            
+            await moveCharacter(evasiveDir, 400);
+
             stuckCount = 0;
             lastX = 0; lastY = 0; // Reset để không bị kẹt ngay lập tức
             continue;
@@ -622,7 +622,7 @@ async function moveTowardsTarget(tx, ty) {
         // TÍNH TOÁN THỜI GIAN NHẤN PHÍM DỰA TRÊN QUÃNG ĐƯỜNG (DYNAMIC DURATION)
         const moveDist = Math.max(Math.abs(dx), Math.abs(dy));
         const dynamicDuration = Math.min(Math.max(moveDist * 4.5, 150), 800); // Tối thiểu 150ms, tối đa 800ms để kịp check vật cản
-        
+
         console.log(`🏃 [MOVE]: Cách đích ${Math.round(moveDist)}px. Nhấn giữ ${Math.round(dynamicDuration)}ms.`);
 
         // Di chuyển theo waypoint hiện tại
@@ -633,7 +633,7 @@ async function moveTowardsTarget(tx, ty) {
         }
         await sleep(5);
     }
-    
+
     // TRẢ VỀ TÌNH TRẠNG THỰC TẾ: Đã tới nơi (Bán kính 40px) hay chưa?
     const finalData = getGameData();
     if (finalData && finalData.player) {
@@ -652,7 +652,7 @@ async function moveTowardsTarget(tx, ty) {
 async function moveStraight(tx, ty) {
     let stuckCount = 0;
     let lastX = 0, lastY = 0;
-    let maxSteps = 200; 
+    let maxSteps = 200;
 
     while (isRunning && maxSteps > 0) {
         maxSteps--;
@@ -681,16 +681,16 @@ async function moveStraight(tx, ty) {
         // --- INSTANT REFLEX (Lách vuông góc 90 độ) ---
         if (stuckCount >= 3) {
             console.warn(`🚧 [STUCK-REFLEX]: Bị chặn! Thực hiện LÁCH VUÔNG GÓC 150ms...`);
-            
+
             // Xác định trục đang đi để lách theo trục còn lại
             const isMovingX = Math.abs(dx) >= 14;
-            const evasiveDir = isMovingX 
-                ? (stuckCount % 2 === 0 ? 'up' : 'down') 
+            const evasiveDir = isMovingX
+                ? (stuckCount % 2 === 0 ? 'up' : 'down')
                 : (stuckCount % 2 === 0 ? 'left' : 'right');
 
             console.log(`👟 [JIGGLE]: Nhích sang [${evasiveDir.toUpperCase()}] trong 150ms.`);
             await moveCharacter(evasiveDir, 150);
-            
+
             stuckCount = 0;
             continue;
         }
@@ -724,7 +724,7 @@ async function moveStraight(tx, ty) {
 
             await moveCharacter(moveDir, duration);
         }
-        
+
         await sleep(50); // Nhịp nghỉ ngắn để engine cập nhật
     }
 }
@@ -827,7 +827,7 @@ async function navigateViaGraph(targetX, targetY) {
 
     const { x: curX, y: curY } = data.player;
     let startNode = findNearestNode(graph, curX, curY);
-    
+
     // Ưu tiên node 'root' nếu ĐÂY LÀ LẦN DI CHUYỂN ĐẦU TIÊN khi vừa đổi map
     if (isNewMapMove && graph.nodes.root) {
         const distRoot = Math.abs(graph.nodes.root.x - curX) + Math.abs(graph.nodes.root.y - curY);
@@ -865,7 +865,7 @@ async function navigateViaGraph(targetX, targetY) {
 
         // Gọi moveStraight một lần duy nhất, hàm này đã tự xử lý (X trước, Y sau) và Dynamic Duration
         await moveStraight(wp.x, wp.y);
-        
+
         console.log(`📍 [WAYPOINT]: Đã tới ${nodeName} tại (${Math.round(wp.x)}, ${Math.round(wp.y)})`);
     }
     return true;
@@ -920,7 +920,7 @@ async function scanDeliveries() {
         if (targetImg) {
             console.log("🖱️ [CLICK]: Đã tìm thấy Icon Codex. Đang mở...");
             await simulateFullClick(targetImg);
-            await sleep(3000); 
+            await sleep(3000);
         }
         return;
     }
@@ -930,7 +930,7 @@ async function scanDeliveries() {
     for (let wait = 0; wait < 3; wait++) {
         grids = panelInfo.el.querySelectorAll('.grid');
         if (grids.length > 0) break;
-        console.log(`⏳ [WAIT]: Đang đợi lưới đơn hàng hiển thị (Lần ${wait+1})...`);
+        console.log(`⏳ [WAIT]: Đang đợi lưới đơn hàng hiển thị (Lần ${wait + 1})...`);
         await sleep(1000);
     }
 
@@ -941,14 +941,14 @@ async function scanDeliveries() {
 
     let totalItemsSkipped = 0;
     let totalItemsReady = 0;
-    memory.delivery_queue = []; 
+    memory.delivery_queue = [];
 
     console.log("🧹 [PHASE 1]: Dọn dẹp đơn cũ màu Cam (Skip)...");
 
     for (let gIndex = 0; gIndex < grids.length; gIndex++) {
         let grid = grids[gIndex];
         let items = Array.from(grid.querySelectorAll(':scope > div'));
-        
+
         for (let i = 0; i < items.length; i++) {
             if (!isRunning) return;
             // Scan lại grids để tránh DOM bị stale sau khi skip
@@ -967,7 +967,7 @@ async function scanDeliveries() {
 
                 const dr = getOpenPanelInfo()?.el;
                 if (dr && (dr.textContent.includes("Skip in:") || dr.textContent.includes("24 hours"))) {
-                    console.log(`⏳ [SKIP]: Mục ${gIndex+1} đang chờ. Bỏ qua.`);
+                    console.log(`⏳ [SKIP]: Mục ${gIndex + 1} đang chờ. Bỏ qua.`);
                     break;
                 }
 
@@ -977,7 +977,7 @@ async function scanDeliveries() {
                     await simulateFullClick(skipBtn);
                     await handleSkipConfirmation();
                     totalItemsSkipped++;
-                    await sleep(1000); 
+                    await sleep(1000);
                     i--; // Quét lại vị trí này do danh sách bị dồn lên
                 }
             }
@@ -987,7 +987,7 @@ async function scanDeliveries() {
     console.log("📋 [PHASE 2]: Gom đơn hàng Trái Tim (Click Thẻ Cha -> Đọc Tên)...");
 
     const scanGrids = document.querySelectorAll('.grid');
-    let lastReadNPC = ""; 
+    let lastReadNPC = "";
 
     for (let gIdx = 0; gIdx < scanGrids.length; gIdx++) {
         const items = scanGrids[gIdx].querySelectorAll(':scope > div');
@@ -998,13 +998,13 @@ async function scanDeliveries() {
 
             // 1. Tìm Trái Tim để biết đơn đã sẵn sàng
             const heartIcon = item.querySelector('img.absolute[class*="top-0.5"][class*="right-0.5"]');
-            
+
             if (heartIcon) {
                 // 2. Click vào thẻ cha (thẻ div có cursor-pointer) để chắc chắn mở bảng Detail
                 const clickTarget = item.querySelector('div.cursor-pointer') || item;
                 console.log("🎯 [TARGET]: Thấy Trái Tim. Đang Click để đọc tên NPC...");
                 try { clickTarget.click(); } catch (e) { simulateFullClick(clickTarget); }
-                
+
                 let npcNameFound = "";
                 // 3. Đợi bảng Detail bên phải cập nhật nội dung
                 for (let retry = 0; retry < 6; retry++) {
@@ -1039,11 +1039,11 @@ async function scanDeliveries() {
     }
 
     console.log(`📊 [HOÀN TẤT]: Skip: ${totalItemsSkipped} | Gom được: ${memory.delivery_queue.length} | Tổng đơn: ${totalItemsReady}`);
-    
+
     if (memory.delivery_queue.length > 0) {
-        sortDeliveryQueue(); 
+        sortDeliveryQueue();
         console.log("📝 [HÀNG CHỜ]: " + memory.delivery_queue.join(" -> ").toUpperCase());
-        const nextNPC = memory.delivery_queue[0]; 
+        const nextNPC = memory.delivery_queue[0];
         console.log(`🚀 [GO]: Xuất phát ngay: ${nextNPC.toUpperCase()}!`);
         targetNPC = nextNPC;
         currentTask = "TRAVEL";
@@ -1051,11 +1051,11 @@ async function scanDeliveries() {
         saveMemory();
     } else {
         console.log("🏁 [AUTO-STOP]: Hiện tại không có đơn nào sẵn sàng. Dừng hệ thống để tiết kiệm CPU...");
-        
+
         isRunning = false;
         isAutoEnabled = false;
         currentTask = "IDLE";
-        
+
         await forceClosePanels();
         updateAutoBtnUI(); // Đồng bộ lại nút bấm thành START
         saveMemory();
@@ -1115,7 +1115,7 @@ async function travelToIsland(islandName) {
     console.log(`--- ✈️ DI CHUYỂN ĐẾN: ${islandName.toUpperCase()} (Hiện tại: ${currentIsland || 'unknown'}) ---`);
 
     // TRANSIT RULES: Beach <-> Kingdom phải qua Plaza
-    if ((currentIsland === "beach" && islandName === "kingdom") || 
+    if ((currentIsland === "beach" && islandName === "kingdom") ||
         (currentIsland === "kingdom" && islandName === "beach")) {
         console.warn(`🚀 [TRANSIT]: Đang ở ${currentIsland}, cần đến ${islandName}. Yêu cầu trung chuyển qua [PLAZA]!`);
         islandName = "plaza"; // Đích đến trung chuyển
@@ -1129,9 +1129,9 @@ async function travelToIsland(islandName) {
 
     // THỬ TÌM NÚT TRAVEL TRONG CODEX (FALLBACK NẾU HASH KHÔNG HOẠT ĐỘNG HOẶC ĐỂ LOCK UI)
     const islandLabel = islandName.charAt(0).toUpperCase() + islandName.slice(1);
-    const travelBtn = findElementByText('.material-button, button', `Travel to ${islandLabel}`) || 
-                      findElementByText('.material-button, button', `Go to ${islandLabel}`) ||
-                      findElementByText('span', islandLabel);
+    const travelBtn = findElementByText('.material-button, button', `Travel to ${islandLabel}`) ||
+        findElementByText('.material-button, button', `Go to ${islandLabel}`) ||
+        findElementByText('span', islandLabel);
 
     if (travelBtn && isAnyUIPanelOpen()) {
         console.log(`👉 [TRAVEL]: Tìm thấy nút di chuyển đến [${islandLabel}] trong Codex. Đang click...`);
@@ -1153,10 +1153,10 @@ async function travelToIsland(islandName) {
     // Xác nhận đã đến đúng map
     const newIsland = getCurrentIsland();
     const targetIslandName = islandName.toLowerCase();
-    
+
     if (newIsland === targetIslandName) {
         console.log(`✅ [TRAVEL]: Đã đến [${newIsland}] thành công!`);
-        
+
         // RELOAD KHI ĐẾN PLAZA ĐỂ ĐỒNG BỘ STATE (Theo yêu cầu User)
         if (newIsland === "plaza") {
             console.warn("🔄 [RELOAD]: Đã tới Plaza. Thực hiện làm mới trang để đồng bộ dữ liệu...");
@@ -1210,7 +1210,7 @@ async function interactWithNPC() {
         if (document.body.dataset.sflInteractSuccess === "true") {
             const method = document.body.dataset.sflInteractMethod || "UNKNOWN";
             console.log(`🎉 [XÁC NHẬN]: Đã nhận tín hiệu Giao hàng thành công cho ${targetNPC.toUpperCase()} bằng [${method}]!`);
-            
+
             // XÓA NPC KHỎI HÀNG CHỜ
             if (memory.delivery_queue && memory.delivery_queue.length > 0) {
                 const finished = memory.delivery_queue.shift();
@@ -1269,7 +1269,7 @@ async function interactWithNPC() {
         }
 
         console.log(`🔍 [3/3 - HẬU KIỂM]: Đang tìm các nút chức năng trong bảng...`);
-        
+
         const dialogOpen = document.querySelectorAll('[role="dialog"], div[id^="headlessui-dialog-panel-"]');
         const isRealNPCConversation = Array.from(dialogOpen).some(d => {
             const text = d.textContent.toLowerCase();
@@ -1282,7 +1282,7 @@ async function interactWithNPC() {
             // 1. Quét tìm Nút Hành Động (Action Button)
             const terminalVerbs = ['deliver', 'complete', 'trade', 'claim', 'sell', 'buy', 'ok'];
             const transitionVerbs = ['next', 'continue', 'got it', 'skip', 'read'];
-            
+
             let actionBtn = null;
             let isTerminal = false;
 
@@ -1308,20 +1308,20 @@ async function interactWithNPC() {
             // 2. Thực thi Click lên Nút (hoặc click bừa vào thẻ Panel để skip chữ)
             if (actionBtn) {
                 const btnText = actionBtn.textContent.trim();
-                
+
                 if (!AUTO_DELIVER_ENABLED) {
                     console.log(`⏸️ [TEST MODE]: Phát hiện Nút Hành động [${btnText}] nhưng AUTO_DELIVER đang TẮT. Đóng băng giao dịch để bạn tự Test!`);
                     currentTask = "IDLE"; // Đưa về chế độ rảnh rỗi
                     return; // Ngừng vòng lặp tương tác
                 }
-                
+
                 console.log(`👉 Đang click vào nút: [${btnText}]...`);
                 await simulateFullClick(actionBtn);
-                
+
                 if (isTerminal || btnText.toLowerCase().includes('deliver') || btnText.toLowerCase().includes('complete')) {
                     console.log(`🎉 [XÁC NHẬN]: Đã click nút CHỐT ĐƠN [MANUAL-UI-CLICK]! Giao hàng thành công!`);
                     forceStopAllKeys(); // Đảm bảo dừng mọi di chuyển (nếu có)
-                    
+
                     // XÓA NPC KHỎI HÀNG CHỜ (Trường hợp click tay vào nút UI)
                     if (memory.delivery_queue && memory.delivery_queue.length > 0) {
                         const finished = memory.delivery_queue.shift();
@@ -1385,7 +1385,7 @@ async function mainLoop() {
     injectPremiumUI();
 
     if (!isRunning && !isRecording) return;
-    
+
     try {
         await loadMemory();
         // ... (phần còn lại)
@@ -1474,10 +1474,10 @@ async function mainLoop() {
                 await interactWithNPC();
                 break;
         }
-        
+
         // --- PERSISTENCE: Lưu trạng thái sau mỗi bước nhảy của State Machine ---
         saveMemory();
-        
+
     } catch (e) {
         console.error("Main Loop Error:", e);
     }
@@ -1527,19 +1527,19 @@ async function loop() {
 (async () => {
     console.log("📡 [SYSTEM]: Khởi động Engine Persistence & Dashboard...");
     await loadMemory();
-    await getUniqueHWID(); 
-    
+    await getUniqueHWID();
+
     // Hiển thị UI ngay lập tức
     injectPremiumUI();
 
     // KIỂM TRA BẢN QUYỀN NGAY KHI VÀO (STARTUP CHECK)
     const valid = await checkLicenseRemote();
-    
+
     if (valid) {
         console.log(`✅ [LICENSE]: Bản quyền hợp lệ (${ownerName}).`);
         if (isRunning) {
             console.log(`🚀 [RESUME]: Tự động khôi phục nhiệm vụ: ${currentTask}`);
-            loop(); 
+            loop();
         }
     } else {
         console.warn("❌ [SECURITY]: Cần kích hoạt bản quyền để sử dụng.");
@@ -1770,7 +1770,7 @@ function injectPremiumUI() {
         <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.05); font-size: 8px; color: #555; display: flex; flex-direction: column; gap: 4px;">
             <div style="display:flex; justify-content:space-between;">
                 <span>OWNER: <span style="color:#FFD700">${ownerName}</span></span>
-                <span>KEY: <span style="color:#2ed573">${licenseKey.substring(0,8)}...</span></span>
+                <span>KEY: <span style="color:#2ed573">${licenseKey.substring(0, 8)}...</span></span>
             </div>
             <div style="text-align: right; color: #444;">ID: ${userHWID}</div>
         </div>
@@ -1783,9 +1783,9 @@ function injectPremiumUI() {
 function updateAutoBtnUI() {
     const autoBtn = document.getElementById('auto_btn');
     if (!autoBtn) return;
-    
+
     autoBtn.innerText = isAutoEnabled ? '🛑 DỪNG GIAO HÀNG (STOP)' : '🚀 BẮT ĐẦU GIAO HÀNG (START)';
-    
+
     // Màu sắc theo trạng thái
     if (isAutoEnabled) {
         autoBtn.style.background = '#ff4757'; // Màu Đỏ khi đang chạy (để dừng)
@@ -1818,16 +1818,16 @@ function initUIEvents() {
                     renderLicenseModal();
                     return;
                 }
-                
+
                 isAutoEnabled = true;
                 isRunning = true;
                 console.log("🚀 [HỆ THỐNG]: Xác thực thành công. Bắt đầu Giao hàng...");
-                
+
                 updateAutoBtnUI();
                 chrome.storage.local.set({ isRunning: true });
-                
+
                 memory.delivery_queue = [];
-                currentTask = "IDLE"; 
+                currentTask = "IDLE";
                 saveMemory();
                 loop();
             } else {
@@ -1835,7 +1835,7 @@ function initUIEvents() {
                 isAutoEnabled = false;
                 isRunning = false;
                 console.log("🛑 [HỆ THỐNG]: Đã dừng tiến trình.");
-                
+
                 updateAutoBtnUI();
                 chrome.storage.local.set({ isRunning: false });
                 currentTask = "IDLE";
