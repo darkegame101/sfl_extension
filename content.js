@@ -1,5 +1,11 @@
 // Sunflower Land Auto-Deliver Content Script
 let isRunning = false;
+let isLicensed = false; // BOT LOCKED BY DEFAULT
+let licenseKey = "";
+let userHWID = "";
+let ownerName = "Premium User";
+let licenseStatus = "Checking...";
+
 let memory = {
     npcs: {},
     islands: {},
@@ -161,7 +167,7 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 // Tải toàn bộ trạng thái từ Storage (Tăng cường Resilience)
 async function loadMemory() {
     return new Promise((resolve) => {
-        chrome.storage.local.get(['sfl_memory', 'isRunning', 'currentTask', 'targetNPC', 'targetIsland'], (result) => {
+        chrome.storage.local.get(['sfl_memory', 'isRunning', 'currentTask', 'targetNPC', 'targetIsland', 'licenseKey', 'userHWID'], (result) => {
             if (result.sfl_memory) {
                 memory = { ...memory, ...result.sfl_memory };
                 if (typeof memory.speedMultiplier !== 'number') memory.speedMultiplier = 1.0;
@@ -170,6 +176,10 @@ async function loadMemory() {
             if (result.currentTask !== undefined) currentTask = result.currentTask;
             if (result.targetNPC !== undefined) targetNPC = result.targetNPC;
             if (result.targetIsland !== undefined) targetIsland = result.targetIsland;
+            
+            // LICENSE PERSISTENCE
+            if (result.licenseKey) licenseKey = result.licenseKey;
+            if (result.userHWID) userHWID = result.userHWID;
             
             isAutoEnabled = isRunning; // Đồng bộ biến điều hướng
             resolve();
@@ -184,11 +194,153 @@ function saveMemory() {
         'isRunning': isRunning,
         'currentTask': currentTask,
         'targetNPC': targetNPC,
-        'targetIsland': targetIsland
+        'targetIsland': targetIsland,
+        'licenseKey': licenseKey,
+        'userHWID': userHWID
     });
 }
 
-// --- TIỆN ÍCH TỌA ĐỘ VÀ ĐỊNH TUYẾN THÔNG MINH ---
+// --- HỆ THỐNG BẢO MẬT & BẢN QUYỀN (FIREBASE LICENSE) ---
+const FIREBASE_DB_URL = "https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/"; // <--- ĐÃ CẬP NHẬT URL THỰC CỦA BẠN
+
+// 1. Tạo mã định danh máy tính duy nhất (Persistent Fingerprint)
+async function getUniqueHWID() {
+    if (userHWID) return userHWID;
+    
+    // Tạo ID ngẫu nhiên nếu chưa có
+    const p = await new Promise(r => chrome.storage.local.get(['userHWID'], r));
+    if (p.userHWID) {
+        userHWID = p.userHWID;
+        return userHWID;
+    }
+
+    const fingerprint = [
+        navigator.userAgent,
+        screen.width,
+        screen.height,
+        navigator.language,
+        Math.random().toString(36).substring(2, 15)
+    ].join('|');
+
+    // Hash đơn giản (hoặc dùng Web Crypto API nếu muốn bảo mật cao hơn)
+    const encoder = new TextEncoder();
+    const data = encoder.encode(fingerprint);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    userHWID = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
+    
+    chrome.storage.local.set({ userHWID });
+    return userHWID;
+}
+
+// 2. Xác thực License từ xa qua Firebase REST API
+async function checkLicenseRemote() {
+    const key = licenseKey || "";
+    if (!key) return false;
+
+    console.log(`📡 [LICENSE]: Đang xác thực Key [${key}] qua Background...`);
+    const hwid = await getUniqueHWID();
+    
+    try {
+        // Gửi tin nhắn tới Background để check GET
+        const response = await new Promise(r => chrome.runtime.sendMessage({ action: "CHECK_LICENSE", key }, r));
+        
+        if (!response || !response.success) {
+            console.error("❌ License Check Error:", response?.error || "Unknown error");
+            return false;
+        }
+
+        const data = response.data;
+        if (!data) return false;
+
+        // 1. Kiểm tra trạng thái
+        if (data.status !== "active") return false;
+
+        // 2. Kiểm tra ngày hết hạn
+        const exp = new Date(data.expiration);
+        if (exp < new Date()) return false;
+
+        // 3. HWID Binding
+        if (!data.hwid) {
+            console.log("⚡ [LICENSE]: Key chưa kích hoạt. Đang gán HWID vào Key...");
+            isLicensed = true;
+            licenseStatus = "VALID";
+            return true;
+        } else if (data.hwid !== id) {
+            // Máy khác đang dùng Key này
+            licenseStatus = "MISMATCH";
+            console.error("❌ [SECURITY]: Cảnh báo! Key này đã được dùng ở máy khác.");
+            return false;
+        }
+
+        // Kiểm tra ngày hết hạn
+        if (data.expiration) {
+            const expDate = new Date(data.expiration);
+            if (expDate < new Date()) {
+                licenseStatus = "EXPIRED";
+                return false;
+            }
+        }
+
+        isLicensed = true;
+        ownerName = data.owner || "Premium User";
+        licenseStatus = "VALID";
+        return true;
+    } catch (e) {
+        console.error("License Check Error:", e);
+        licenseStatus = "SERVER_ERROR";
+        return false;
+    }
+}
+
+// 3. Giao diện nhập Key khi chưa kích hoạt (Blocking UI)
+function renderLicenseModal() {
+    if (document.getElementById('sfl-license-modal')) return;
+
+    const modal = document.createElement('div');
+    modal.id = "sfl-license-modal";
+    modal.style.cssText = `
+        position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+        display: flex; align-items: center; justify-content: center;
+        z-index: 99999; backdrop-filter: blur(10px); color: white;
+        font-family: system-ui, -apple-system, sans-serif;
+    `;
+
+    let msg = "Vui lòng nhập License Key để sử dụng Bot";
+    if (licenseStatus === "MISMATCH") msg = "❌ Key này đã được dùng trên máy khác!";
+    if (licenseStatus === "EXPIRED") msg = "❌ Key của bạn đã hết hạn!";
+    if (licenseStatus === "NOT_FOUND") msg = "❌ Không tìm thấy Key này trên hệ thống!";
+
+    modal.innerHTML = `
+        <div style="background: #1a1a1a; padding: 40px; border-radius: 20px; border: 1px solid #FFD700; width: 350px; text-align: center; box-shadow: 0 0 50px rgba(255,215,0,0.1);">
+            <div style="font-size: 24px; font-weight: 800; color: #FFD700; margin-bottom: 10px;">PREMIUM ACCESS</div>
+            <div style="font-size: 12px; color: #888; margin-bottom: 25px;">${msg}</div>
+            
+            <input type="text" id="license_input" placeholder="G0LD-XXXX-YYYY-ZZZZ" style="width: 100%; padding: 15px; background: #000; border: 1px solid #333; border-radius: 8px; color: #2ed573; text-align: center; font-family: monospace; font-size: 14px; margin-bottom: 20px;">
+            <button id="activate_btn" style="width: 100%; padding: 15px; background: linear-gradient(to right, #FFD700, #DAA520); border: none; border-radius: 8px; color: #000; font-weight: 800; cursor: pointer; transition: 0.2s;">KÍCH HOẠT NGAY</button>
+            <div style="margin-top: 20px; font-size: 10px; color: #555;">ID Máy: ${userHWID}</div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    document.getElementById('activate_btn').onclick = async () => {
+        const key = document.getElementById('license_input').value.trim();
+        if (key.length < 5) return;
+        
+        document.getElementById('activate_btn').innerText = "ĐANG KIỂM TRA...";
+        licenseKey = key;
+        const valid = await checkLicenseRemote();
+        
+        if (valid) {
+            saveMemory();
+            window.location.reload(); // Tải lại để khởi động bot
+        } else {
+            alert("Lỗi: " + licenseStatus);
+            document.getElementById('activate_btn').innerText = "KÍCH HOẠT NGAY";
+        }
+    };
+}
 function getNPCData(name) {
     if (!name) return null;
     name = name.toLowerCase().trim();
@@ -1372,18 +1524,26 @@ async function loop() {
 
 // --- INIT & PERSISTENCE RESUME ---
 (async () => {
-    console.log("📡 [SYSTEM]: Khởi động Engine Persistence...");
+    console.log("📡 [SYSTEM]: Khởi động Engine Persistence & Dashboard...");
     await loadMemory();
+    await getUniqueHWID(); 
     
-    // Đợi game ổn định rồi mới hiện UI và Resume
-    setTimeout(() => {
-        injectPremiumUI();
-        
-        if (isRunning) {
-            console.log(`🚀 [RESUME]: Phát hiện trạng thái ĐANG CHẠY. Tự động khôi phục nhiệm vụ: ${currentTask} [NPC: ${targetNPC || 'N/A'}]`);
-            loop(); 
-        }
-    }, 2000);
+    // Hiển thị UI ngay lập tức để người dùng có thể chỉnh cài đặt (Tốc độ, ...)
+    injectPremiumUI();
+
+    // Nếu bot đang ở trạng thái chạy (Auto-Resume), thực hiện check license ngầm để chạy tiếp
+    if (isRunning) {
+        setTimeout(async () => {
+            const valid = await checkLicenseRemote();
+            if (valid) {
+                console.log(`🚀 [RESUME]: License hợp lệ. Tự động khôi phục nhiệm vụ: ${currentTask}`);
+                loop(); 
+            } else {
+                console.warn("❌ [SECURITY]: License hết hạn khi Resume. Khóa Bot.");
+                renderLicenseModal();
+            }
+        }, 1500);
+    }
 })();
 
 // --- UPDATED COORDINATE LOGIC ---
@@ -1606,6 +1766,13 @@ function injectPremiumUI() {
             <button id="export_btn" style="flex:1; padding:8px; background:#444; color:white; border:none; border-radius:4px; font-size:10px; cursor:pointer;">EXPORT</button>
             <button id="save_btn" style="flex:1; padding:8px; background:linear-gradient(135deg, #FFD700 0%, #B8860B 100%); color:black; border:none; border-radius:4px; font-size:10px; font-weight:bold; cursor:pointer;">SAVE ALL</button>
         </div>
+        <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.05); font-size: 8px; color: #555; display: flex; flex-direction: column; gap: 4px;">
+            <div style="display:flex; justify-content:space-between;">
+                <span>OWNER: <span style="color:#FFD700">${ownerName}</span></span>
+                <span>KEY: <span style="color:#2ed573">${licenseKey.substring(0,8)}...</span></span>
+            </div>
+            <div style="text-align: right; color: #444;">ID: ${userHWID}</div>
+        </div>
     `;
     document.body.appendChild(ui);
     initUIEvents();
@@ -1642,22 +1809,34 @@ function initUIEvents() {
         // Khởi tạo giao diện theo trạng thái mặc định
         updateAutoBtnUI();
 
-        autoBtn.onclick = () => {
-            isAutoEnabled = !isAutoEnabled;
-            isRunning = isAutoEnabled;
-            
-            updateAutoBtnUI();
-            chrome.storage.local.set({ isRunning: isAutoEnabled });
-
-            if (isRunning) {
-                console.log("🚀 [HỆ THỐNG]: Bắt đầu tiến trình Giao hàng Tự động...");
-                // MỖI KHI NHẤN "BẮT ĐẦU" - BẮT BUỘC QUÉT MỚI TỪ ĐẦU
+        autoBtn.onclick = async () => {
+            if (!isAutoEnabled) {
+                // ĐANG TẮT -> NHẤN ĐỂ BẬT: Kiểm tra bản quyền TRƯỚC khi chạy
+                const valid = await checkLicenseRemote();
+                if (!valid) {
+                    renderLicenseModal();
+                    return;
+                }
+                
+                isAutoEnabled = true;
+                isRunning = true;
+                console.log("🚀 [HỆ THỐNG]: Xác thực thành công. Bắt đầu Giao hàng...");
+                
+                updateAutoBtnUI();
+                chrome.storage.local.set({ isRunning: true });
+                
                 memory.delivery_queue = [];
                 currentTask = "IDLE"; 
                 saveMemory();
                 loop();
             } else {
+                // ĐANG BẬT -> NHẤN ĐỂ TẮT: Dừng ngay lập tức (Không cần check license)
+                isAutoEnabled = false;
+                isRunning = false;
                 console.log("🛑 [HỆ THỐNG]: Đã dừng tiến trình.");
+                
+                updateAutoBtnUI();
+                chrome.storage.local.set({ isRunning: false });
                 currentTask = "IDLE";
                 saveMemory();
             }
