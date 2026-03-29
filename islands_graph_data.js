@@ -78,7 +78,7 @@ const ISLAND_GRAPHS = {
             "pharaoh-ps": { x: 68, y: 95 },
             "finn midle": { x: 369, y: 589 },
             "finn-ps": { x: 211, y: 589 },
-            "finley midle": { x: 370, y: 457 },
+            "finley midle": { x: 380, y: 457 },
             "finley-ps": { x: 245, y: 457 }
         },
         edges: [

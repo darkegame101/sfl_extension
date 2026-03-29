@@ -771,8 +771,9 @@ async function scanDeliveries() {
             const itemHTML = currentItem.innerHTML;
             const isOrange = itemHTML.includes('rgb(240, 145, 0)') || itemHTML.includes('rgb(240,145,0)');
             const padlockIcon = currentItem.querySelector('img[src*="lock"]') || currentItem.querySelector('img[src*="padlock"]');
+            const heartIcon = currentItem.querySelector('img.absolute[class*="top-0.5"][class*="right-0.5"]');
 
-            if (isOrange && !padlockIcon) {
+            if (isOrange && !padlockIcon && !heartIcon) {
                 try { currentItem.click(); } catch (e) { simulateFullClick(currentItem); }
                 await sleep(500);
 
