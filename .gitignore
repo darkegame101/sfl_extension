@@ -1,0 +1,18 @@
+# Administrative files (License management)
+keys.txt
+generate_plus.ps1
+generate_keys.js
+test_key.js
+keymethod.txt
+
+# Common junk/unnecessary files
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+
+# Documentation/Artifacts (Optional to ignore if not needed in repo)
+*.md
+walkthrough.md
+task.md
+implementation_plan*.md

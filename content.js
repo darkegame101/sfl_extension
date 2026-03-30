@@ -826,6 +826,14 @@ async function navigateViaGraph(targetX, targetY) {
     if (!data || !data.player) return false;
 
     const { x: curX, y: curY } = data.player;
+    
+    // --- [NEW] CẢM BIẾN TIỆM CẬN: Nếu đã đứng rất gần đích (sai số < 15px) thì không cần di chuyển ---
+    const distDirect = Math.abs(targetX - curX) + Math.abs(targetY - curY);
+    if (distDirect < 15) {
+        console.log("🎯 [PROXIMITY]: Đã ở rất gần mục tiêu. Bỏ qua điều hướng đồ thị.");
+        return true;
+    }
+
     let startNode = findNearestNode(graph, curX, curY);
 
     // Ưu tiên node 'root' nếu ĐÂY LÀ LẦN DI CHUYỂN ĐẦU TIÊN khi vừa đổi map
@@ -1444,7 +1452,7 @@ async function mainLoop() {
                 const sync = getGameData();
                 if (sync && sync.player) {
                     console.log("✅ [HỆ THỐNG]: Đồng bộ Engine thành công. Bắt đầu di chuyển...");
-                    isNewMapMove = true; // Bot vừa chuyển map/reload, ưu tiên node 'root' khi di chuyển
+                    // CHỈ set isNewMapMove nếu thực sự vừa đổi Map (không dư thừa khi giao cùng map)
                     currentTask = "MOVE";
                 } else {
                     console.log("⏳ [ĐỢI]: Đang chờ tín hiệu Engine (Đèn Xanh)...");
@@ -1729,52 +1737,91 @@ function injectPremiumUI() {
 
     const ui = document.createElement('div');
     ui.id = "sfl-premium-ui";
+    
+    // Load trạng thái thu nhỏ từ bộ nhớ
+    chrome.storage.local.get(['sfl_ui_collapsed'], (res) => {
+        const isCollapsed = res.sfl_ui_collapsed || false;
+        renderInternalUI(ui, isCollapsed);
+    });
+
+    document.body.appendChild(ui);
+    initUIEvents();
+}
+
+function renderInternalUI(ui, isCollapsed) {
     ui.style.cssText = `
-        position: fixed; bottom: 80px; left: 20px; width: 260px;
-        background: rgba(10, 10, 10, 0.95); backdrop-filter: blur(20px);
-        border: 1px solid rgba(255, 215, 0, 0.5); border-radius: 16px; 
-        padding: 18px; z-index: 10000; color: white; font-family: system-ui;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        position: fixed; bottom: 20px; left: 20px; 
+        width: ${isCollapsed ? '32px' : '140px'};
+        height: ${isCollapsed ? '32px' : 'auto'};
+        background: rgba(15, 15, 15, 0.95); backdrop-filter: blur(15px);
+        border: 1px solid rgba(255, 215, 0, 0.4); border-radius: ${isCollapsed ? '50%' : '12px'}; 
+        padding: ${isCollapsed ? '0' : '10px'}; z-index: 10000; color: white; 
+        font-family: 'Segoe UI', system-ui;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.8);
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        overflow: hidden; cursor: ${isCollapsed ? 'pointer' : 'default'};
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
     `;
 
-    ui.innerHTML = `
-        <div style="font-weight: 800; font-size: 14px; margin-bottom: 12px; text-align: center; color: #FFD700; border-bottom: 1px solid rgba(255,215,0,0.2); padding-bottom: 8px;">SFL PRO: ENGINE LINKED</div>
-        <div style="background: rgba(0,255,0,0.05); padding: 12px; border-radius: 10px; margin-bottom: 12px; border: 1px dashed #4CAF50;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                <div style="display:flex; align-items:center; gap:5px;">
-                    <span style="font-size:8px; color:#4CAF50; font-weight:bold;">RADAR</span>
-                    <span id="sync-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: #555;"></span>
+    if (isCollapsed) {
+        ui.innerHTML = `
+            <span id="sync-indicator" style="width: 10px; height: 10px; border-radius: 50%; background: #555; box-shadow: 0 0 10px rgba(0,255,0,0.5);"></span>
+            <div style="display:none !important;">
+                <button id="auto_btn"></button><div id="bot-status-disp"></div><div id="target_npc_disp"></div>
+                ${getHiddenTechLayer()}
+            </div>
+        `;
+        ui.onclick = () => {
+            chrome.storage.local.set({ sfl_ui_collapsed: false });
+            renderInternalUI(ui, false);
+            initUIEvents();
+        };
+    } else {
+        ui.onclick = null;
+        ui.innerHTML = `
+            <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <div style="display:flex; align-items:center; gap:4px;">
+                    <span id="sync-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #555;"></span>
+                    <span style="font-size: 8px; font-weight: 900; color: #FFD700;">PRO</span>
                 </div>
-                <button id="deep_scan_btn" style="font-size: 9px; background: rgba(255, 69, 0, 0.2); color: #FF4500; border: 1px solid #FF4500; padding: 2px 8px; border-radius: 4px; cursor: pointer;">DÒ TÌM SÂU</button>
+                <div id="ui-close-btn" style="cursor: pointer; font-size: 10px; color: #555; padding: 2px 5px; background: rgba(255,255,255,0.05); border-radius: 4px;">_</div>
             </div>
-            <div style="font-size: 26px; font-weight: 800; font-family: monospace; color: #2ed573; text-align: center; margin: 5px 0;">
-                <span id="radar_x">0</span>, <span id="radar_y">0</span>
+            
+            <button id="auto_btn" style="width:100%; padding:8px 4px; border:none; border-radius:6px; font-weight:800; font-size:10px; background: #222; color:#fff; cursor:pointer; margin-bottom: 6px; border: 1px solid rgba(255,255,255,0.1);">
+                START
+            </button>
+
+            <div style="text-align: center; width: 100%;">
+                <div id="bot-status-disp" style="font-size: 8px; color: #888; font-weight: 600; text-transform: uppercase;">READY</div>
+                <div id="target_npc_disp" style="font-size: 9px; color: #FFD700; font-weight: 800; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-</div>
             </div>
-            <div id="target_npc_disp" style="text-align:center; font-size:10px; color:#FFD700; font-weight:bold; margin-bottom:5px;">
-                MT: ${targetNPC ? targetNPC.toUpperCase() : "KHÔNG CÓ"}
-            </div>
-            <div style="display:flex; gap:5px; margin-top:10px;">
-                <input type="number" id="manual_x" value="0" style="flex:1; background:transparent; border:1px solid #333; color:#2ed573; font-size:10px; padding:2px;">
-                <input type="number" id="manual_y" value="0" style="flex:1; background:transparent; border:1px solid #333; color:#2ed573; font-size:10px; padding:2px;">
-            </div>
-        </div>
-        <button id="auto_btn" style="width:100%; padding:12px; border:none; border-radius:8px; font-weight:800; background:#333; color:white; cursor:pointer; margin-bottom: 12px;">🚀 BẮT ĐẦU GIAO HÀNG (START)</button>
-        <div style="margin-bottom: 12px;">
-            <div style="display:flex; justify-content:space-between; font-size:10px; color:#888; margin-bottom:4px;"><span>TỐC ĐỘ</span><span id="speed_disp">${memory.speedMultiplier}x</span></div>
-            <input type="range" id="speed_slide" min="0.5" max="2" step="0.1" value="${memory.speedMultiplier}" style="width:100%; accent-color:#FFD700;">
-        </div>
-        <div style="display:flex; gap:8px;">
-            <button id="export_btn" style="flex:1; padding:8px; background:#444; color:white; border:none; border-radius:4px; font-size:10px; cursor:pointer;">EXPORT</button>
-            <button id="save_btn" style="flex:1; padding:8px; background:linear-gradient(135deg, #FFD700 0%, #B8860B 100%); color:black; border:none; border-radius:4px; font-size:10px; font-weight:bold; cursor:pointer;">SAVE ALL</button>
-        </div>
-        <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.05); font-size: 8px; color: #555; display: flex; flex-direction: column; gap: 4px;">
-            <div style="display:flex; justify-content:space-between;">
-                <span>OWNER: <span style="color:#FFD700">${ownerName}</span></span>
-                <span>KEY: <span style="color:#2ed573">${licenseKey.substring(0, 8)}...</span></span>
-            </div>
-            <div style="text-align: right; color: #444;">ID: ${userHWID}</div>
+
+            ${getHiddenTechLayer()}
+        `;
+        
+        const closeBtn = ui.querySelector('#ui-close-btn');
+        if (closeBtn) closeBtn.onclick = (e) => {
+            e.stopPropagation();
+            chrome.storage.local.set({ sfl_ui_collapsed: true });
+            renderInternalUI(ui, true);
+        };
+    }
+}
+
+function getHiddenTechLayer() {
+    return `
+        <div style="display: none !important;">
+            <span id="radar_x">0</span><span id="radar_y">0</span>
+            <input type="number" id="manual_x" value="0">
+            <input type="number" id="manual_y" value="0">
+            <input type="range" id="speed_slide" value="1.0">
+            <span id="speed_disp">1.0x</span>
+            <button id="deep_scan_btn"></button>
+            <button id="export_btn"></button>
+            <button id="save_btn"></button>
         </div>
     `;
+}
     document.body.appendChild(ui);
     initUIEvents();
 }
@@ -1784,15 +1831,14 @@ function updateAutoBtnUI() {
     const autoBtn = document.getElementById('auto_btn');
     if (!autoBtn) return;
 
-    autoBtn.innerText = isAutoEnabled ? '🛑 DỪNG GIAO HÀNG (STOP)' : '🚀 BẮT ĐẦU GIAO HÀNG (START)';
+    autoBtn.innerText = isAutoEnabled ? '🛑 STOP BOT' : '🚀 DELIVER';
 
-    // Màu sắc theo trạng thái
     if (isAutoEnabled) {
-        autoBtn.style.background = '#ff4757'; // Màu Đỏ khi đang chạy (để dừng)
-        autoBtn.style.color = '#fff';
+        autoBtn.style.background = 'linear-gradient(135deg, #ff4757 0%, #ee5253 100%)';
+        autoBtn.style.boxShadow = '0 0 10px rgba(255, 71, 87, 0.4)';
     } else {
-        autoBtn.style.background = '#333'; // Màu Xám khi đang dừng
-        autoBtn.style.color = '#fff';
+        autoBtn.style.background = 'linear-gradient(135deg, #2f3542 0%, #2f3542 100%)';
+        autoBtn.style.boxShadow = 'none';
     }
 }
 
@@ -1895,10 +1941,20 @@ setInterval(() => {
     const radarX = document.getElementById('radar_x');
     const radarY = document.getElementById('radar_y');
     const targetDisp = document.getElementById('target_npc_disp');
+    const statusDisp = document.getElementById('bot-status-disp');
     const indicator = document.getElementById('sync-indicator');
 
     if (targetDisp) {
-        targetDisp.innerText = "MT: " + (targetNPC ? targetNPC.toUpperCase() : "KHÔNG CÓ");
+        targetDisp.innerText = targetNPC ? targetNPC.toUpperCase() : "NO TARGET";
+    }
+
+    if (statusDisp) {
+        let currentStatus = currentTask;
+        if (!isRunning) currentStatus = "READY";
+        if (currentTask === "MOVE") currentStatus = "NAVIGATING";
+        if (currentTask === "DELIVER") currentStatus = "INTERACTING";
+        if (currentTask === "TRAVEL") currentStatus = "ISLAND TRAVEL";
+        statusDisp.innerText = currentStatus;
     }
 
     if (data && data.player) {

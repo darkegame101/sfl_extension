@@ -5,7 +5,7 @@
 $FIREBASE_URL = "https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/"
 $ADMIN_SECRET = "TRUM-BOT-SFL-2024" 
 $PREFIX = "G0LD"
-$OWNER = "truong"
+$OWNER = "test"
 $MONTHS_VALID = 12
 
 # --- GENERATOR ---
