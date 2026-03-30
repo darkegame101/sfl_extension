@@ -1751,33 +1751,45 @@ function injectPremiumUI() {
 function renderInternalUI(ui, isCollapsed) {
     ui.style.cssText = `
         position: fixed; bottom: 20px; left: 20px; 
-        width: ${isCollapsed ? '32px' : '140px'};
-        height: ${isCollapsed ? '32px' : 'auto'};
+        width: ${isCollapsed ? '36px' : '140px'};
+        height: ${isCollapsed ? '36px' : 'auto'};
         background: rgba(15, 15, 15, 0.95); backdrop-filter: blur(15px);
-        border: 1px solid rgba(255, 215, 0, 0.4); border-radius: ${isCollapsed ? '50%' : '12px'}; 
+        border: 1px solid rgba(255, 215, 0, 0.5); border-radius: ${isCollapsed ? '50%' : '12px'}; 
         padding: ${isCollapsed ? '0' : '10px'}; z-index: 10000; color: white; 
         font-family: 'Segoe UI', system-ui;
         box-shadow: 0 8px 32px rgba(0,0,0,0.8);
         transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        overflow: hidden; cursor: ${isCollapsed ? 'pointer' : 'default'};
+        overflow: hidden; cursor: default;
         display: flex; flex-direction: column; align-items: center; justify-content: center;
     `;
 
     if (isCollapsed) {
+        const glow = isAutoEnabled ? '0 0 15px #2ed573' : '0 0 10px rgba(255,215,0,0.2)';
         ui.innerHTML = `
-            <span id="sync-indicator" style="width: 10px; height: 10px; border-radius: 50%; background: #555; box-shadow: 0 0 10px rgba(0,255,0,0.5);"></span>
+            <div id="quick-toggle-btn" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative;">
+                <span style="font-size: 16px; font-weight: 900; color: ${isAutoEnabled ? '#2ed573' : '#FFD700'}; text-shadow: ${glow}; transition: 0.3s;">S</span>
+                <span id="sync-indicator" style="position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius:50%; background: ${isAutoEnabled ? '#2ed573' : '#555'};"></span>
+                <div id="ui-expand-btn" style="position: absolute; bottom: 0; right: 0; width: 16px; height: 16px; font-size: 12px; background: rgba(255,215,0,0.2); display: flex; align-items: center; justify-content: center; border-radius: 50% 0 0 0; color: #fff; font-weight: 800;">+</div>
+            </div>
             <div style="display:none !important;">
                 <button id="auto_btn"></button><div id="bot-status-disp"></div><div id="target_npc_disp"></div>
                 ${getHiddenTechLayer()}
             </div>
         `;
-        ui.onclick = () => {
+        
+        ui.querySelector('#quick-toggle-btn').onclick = async (e) => {
+            e.stopPropagation();
+            await toggleBotLogic();
+            renderInternalUI(ui, true); // Refresh UI to show new 'S' color
+        };
+
+        ui.querySelector('#ui-expand-btn').onclick = (e) => {
+            e.stopPropagation();
             chrome.storage.local.set({ sfl_ui_collapsed: false });
             renderInternalUI(ui, false);
             initUIEvents();
         };
     } else {
-        ui.onclick = null;
         ui.innerHTML = `
             <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                 <div style="display:flex; align-items:center; gap:4px;">
@@ -1806,6 +1818,34 @@ function renderInternalUI(ui, isCollapsed) {
             renderInternalUI(ui, true);
         };
     }
+}
+
+async function toggleBotLogic() {
+    if (!isAutoEnabled) {
+        // ĐANG TẮT -> BẬT
+        const valid = await checkLicenseRemote();
+        if (!valid) {
+            renderLicenseModal();
+            return;
+        }
+        isAutoEnabled = true;
+        isRunning = true;
+        console.log("🚀 [HỆ THỐNG]: Bật Bot thành công.");
+        chrome.storage.local.set({ isRunning: true });
+        memory.delivery_queue = [];
+        currentTask = "IDLE";
+        saveMemory();
+        loop();
+    } else {
+        // ĐANG BẬT -> TẮT
+        isAutoEnabled = false;
+        isRunning = false;
+        console.log("🛑 [HỆ THỐNG]: Dừng Bot.");
+        chrome.storage.local.set({ isRunning: false });
+        currentTask = "IDLE";
+        saveMemory();
+    }
+    updateAutoBtnUI();
 }
 
 function getHiddenTechLayer() {
@@ -1850,40 +1890,9 @@ function initUIEvents() {
 
     const autoBtn = document.getElementById('auto_btn');
     if (autoBtn) {
-        // Khởi tạo giao diện theo trạng thái mặc định
         updateAutoBtnUI();
-
         autoBtn.onclick = async () => {
-            if (!isAutoEnabled) {
-                // ĐANG TẮT -> NHẤN ĐỂ BẬT: Kiểm tra bản quyền TRƯỚC khi chạy
-                const valid = await checkLicenseRemote();
-                if (!valid) {
-                    renderLicenseModal();
-                    return;
-                }
-
-                isAutoEnabled = true;
-                isRunning = true;
-                console.log("🚀 [HỆ THỐNG]: Xác thực thành công. Bắt đầu Giao hàng...");
-
-                updateAutoBtnUI();
-                chrome.storage.local.set({ isRunning: true });
-
-                memory.delivery_queue = [];
-                currentTask = "IDLE";
-                saveMemory();
-                loop();
-            } else {
-                // ĐANG BẬT -> NHẤN ĐỂ TẮT: Dừng ngay lập tức (Không cần check license)
-                isAutoEnabled = false;
-                isRunning = false;
-                console.log("🛑 [HỆ THỐNG]: Đã dừng tiến trình.");
-
-                updateAutoBtnUI();
-                chrome.storage.local.set({ isRunning: false });
-                currentTask = "IDLE";
-                saveMemory();
-            }
+            await toggleBotLogic();
         };
     }
 
