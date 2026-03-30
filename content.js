@@ -1738,9 +1738,9 @@ function injectPremiumUI() {
     const ui = document.createElement('div');
     ui.id = "sfl-premium-ui";
     
-    // Load trạng thái thu nhỏ từ bộ nhớ
+    // Mặc định luôn là thu gọn (isCollapsed = true) nếu chưa lưu lựa chọn
     chrome.storage.local.get(['sfl_ui_collapsed'], (res) => {
-        const isCollapsed = res.sfl_ui_collapsed || false;
+        const isCollapsed = res.sfl_ui_collapsed !== false;
         renderInternalUI(ui, isCollapsed);
     });
 
@@ -1821,9 +1821,6 @@ function getHiddenTechLayer() {
             <button id="save_btn"></button>
         </div>
     `;
-}
-    document.body.appendChild(ui);
-    initUIEvents();
 }
 
 // Đồng bộ hóa Giao diện Nút Bấm Tự động
