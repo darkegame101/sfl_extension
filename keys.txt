@@ -24,3 +24,5 @@ Key: G0LD-EI27-T153-6JF6 | Owner: test | Exp: 2027-04-17
 
 Key: G0LD-RSRD-RE16-H15C | Owner: test | Exp: 2027-04-17
 
+Key: G0LD-445U-4Q0L-EZFF | Owner: test | Exp: 2027-04-18
+

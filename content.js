@@ -22,34 +22,98 @@ function injectAntiThrottlingScript() {
     const script = document.createElement('script');
     script.textContent = `
         (function() {
-            // 1. Ép trình duyệt luôn báo cho game biết là Tab đang mở
-            Object.defineProperty(document, 'visibilityState', {
-                get: function() { return 'visible'; },
-                configurable: true
-            });
-            Object.defineProperty(document, 'hidden', {
-                get: function() { return false; },
-                configurable: true
-            });
-            
-            // 2. Chặn đứng các sự kiện "ẩn tab" (visibilitychange) truyền tới game
-            const originalDocAddEventListener = document.addEventListener;
-            document.addEventListener = function(type, listener, options) {
-                if (type === 'visibilitychange' || type === 'webkitvisibilitychange') {
-                    return; // Vô hiệu hóa
+            console.log("🚀 [SFL ANTI-AFK] Khởi động màng bảo vệ V8 (Auto Balance 60FPS)...");
+
+            Object.defineProperty(document, 'hidden', { get: () => false, configurable: true });
+            Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
+            Object.defineProperty(document, 'webkitHidden', { get: () => false, configurable: true });
+            Object.defineProperty(document, 'hasFocus', { value: () => true, configurable: true });
+
+            let eventsCaught = 0;
+            const blockVisibility = (e) => {
+                if(e.isTrusted) {
+                    eventsCaught++;
+                    e.stopImmediatePropagation();
+                    e.stopPropagation();
                 }
-                return originalDocAddEventListener.call(document, type, listener, options);
             };
 
-            const originalWinAddEventListener = window.addEventListener;
-            window.addEventListener = function(type, listener, options) {
-                if (type === 'visibilitychange' || type === 'pagehide') {
-                    return; // Vô hiệu hóa
+            const eventsToBlock = ['visibilitychange', 'webkitvisibilitychange', 'pagehide', 'blur', 'focusout'];
+            eventsToBlock.forEach(evt => {
+                document.addEventListener(evt, blockVisibility, true);
+                window.addEventListener(evt, blockVisibility, true);
+            });
+
+            const workerCode = "setInterval(() => { self.postMessage('tick'); }, 16);";
+            const blob = new Blob([workerCode], { type: 'application/javascript' });
+            const rafWorker = new Worker(URL.createObjectURL(blob));
+
+            const originalRAF = window.requestAnimationFrame;
+            const pendingCallbacks = new Map();
+            let rafCounter = 0;
+            let framesThisSecond = 0;
+            let workerTicksThisSecond = 0;
+            let lastChromeFrameTime = performance.now();
+
+            rafWorker.onmessage = function() {
+                workerTicksThisSecond++;
+                
+                if (performance.now() - lastChromeFrameTime < 100) return;
+
+                if (pendingCallbacks.size === 0) return;
+                
+                const now = performance.now();
+                const callbacksToRun = Array.from(pendingCallbacks.values());
+                pendingCallbacks.clear();
+                
+                for (const cb of callbacksToRun) {
+                    cb(now);
+                    framesThisSecond++;
                 }
-                return originalWinAddEventListener.call(window, type, listener, options);
             };
 
-            console.log("🛡️ [ANTI-AFK]: Đã kích hoạt lá chắn bảo vệ. Tool vẫn chạy mượt khi ẩn Tab!");
+            window.requestAnimationFrame = function(callback) {
+                const id = ++rafCounter;
+                pendingCallbacks.set(id, callback);
+
+                originalRAF.call(window, (time) => {
+                    lastChromeFrameTime = performance.now();
+                    if (pendingCallbacks.has(id)) {
+                        pendingCallbacks.delete(id);
+                        framesThisSecond++;
+                        callback(time);
+                    }
+                });
+
+                return id;
+            };
+
+            window.cancelAnimationFrame = function(id) {
+                pendingCallbacks.delete(id);
+            };
+
+            setInterval(() => {
+                const fps = framesThisSecond;
+                const workerTicks = workerTicksThisSecond;
+                framesThisSecond = 0;
+                workerTicksThisSecond = 0;
+                
+                let statusTag = '';
+                if (fps >= 50 && performance.now() - lastChromeFrameTime < 100) {
+                    statusTag = "🟢 CHROME GỐC (Tab Đang Mở)";
+                } else if (fps > 0) {
+                    statusTag = "🔥 WORKER GÁNH GAME (Bù tốc độ)";
+                } else {
+                    statusTag = "🔴 GAME BỊ TẠM DỪNG";
+                }
+
+                console.log(
+                    "%c[TRACKER] Chặn: " + eventsCaught + " | Tim Worker: " + workerTicks + "/s | FPS Thực Tế: " + fps + " => " + statusTag,
+                    "color: " + (fps >= 50 ? '#00ff00' : (fps > 0 ? '#ff9900' : 'red')) + "; font-weight: bold;"
+                );
+            }, 1000);
+
+            console.log("✅ [SFL ANTI-AFK] Lá chắn V8 (Auto Balance) đã sẵn sàng!");
         })();
     `;
     (document.head || document.documentElement).appendChild(script);
@@ -223,8 +287,36 @@ function findElementByText(selector, text) {
     });
 }
 
-// Utility to sleep
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+// --- BỘ ĐẾM THỜI GIAN ĐỘC LẬP (WEB WORKER) ĐỂ CHỐNG THROTTLING KHI ẨN TAB ---
+// Trình duyệt sẽ bóp nghẹt setTimeout() nếu Tab bị ẩn. Chúng ta dùng Web Worker chạy ở luồng riêng để đếm giờ thay.
+const workerCode = `
+    self.onmessage = function(e) {
+        setTimeout(() => {
+            self.postMessage(e.data);
+        }, e.data.ms);
+    };
+`;
+const sleepBlob = new Blob([workerCode], { type: 'application/javascript' });
+const sleepWorker = new Worker(URL.createObjectURL(sleepBlob));
+
+let sleepIdCounter = 0;
+const pendingSleeps = new Map();
+
+sleepWorker.onmessage = function (e) {
+    const { id } = e.data;
+    if (pendingSleeps.has(id)) {
+        pendingSleeps.get(id)();
+        pendingSleeps.delete(id);
+    }
+};
+
+const sleep = (ms) => {
+    return new Promise(resolve => {
+        const id = ++sleepIdCounter;
+        pendingSleeps.set(id, resolve);
+        sleepWorker.postMessage({ id, ms });
+    });
+};
 
 // Load memory from file/local storage
 // Tải toàn bộ trạng thái từ Storage (Tăng cường Resilience)
@@ -721,7 +813,7 @@ async function moveStraight(tx, ty) {
 
     while (isRunning && maxSteps > 0) {
         maxSteps--;
-        
+
         // --- TIMEOUT CHỐNG KẸT VÔ TẬN (15 giây) ---
         if (Date.now() - startTime > 15000) {
             console.error("🚨 [FATAL TIMEOUT]: Kẹt quá 15 giây khi cố gắng đến một điểm. Bắt buộc TẢI LẠI TRANG để gỡ kẹt!");
@@ -909,7 +1001,7 @@ async function navigateViaGraph(targetX, targetY) {
     if (!data || !data.player) return false;
 
     const { x: curX, y: curY } = data.player;
-    
+
     // --- [NEW] CẢM BIẾN TIỆM CẬN: Nếu đã đứng rất gần đích (sai số < 15px) thì không cần di chuyển ---
     const distDirect = Math.abs(targetX - curX) + Math.abs(targetY - curY);
     if (distDirect < 15) {
@@ -1296,7 +1388,7 @@ function simulateCanvasClick(x, y) {
 // Hàm kích hoạt lưu game (Auto-Save) chuẩn của SFL
 async function triggerGameSave(waitMs = 500) {
     console.log("💾 [SAVE]: Kích hoạt lưu game bằng click và blur...");
-    try { simulateCanvasClick(10, 10); } catch(e){}
+    try { simulateCanvasClick(10, 10); } catch (e) { }
     window.dispatchEvent(new Event('blur'));
     document.body.click();
     if (waitMs > 0) await sleep(waitMs);
@@ -1554,11 +1646,11 @@ async function mainLoop() {
                 const sync = getGameData();
                 if (sync && sync.player) {
                     console.log("✅ [HỆ THỐNG]: Đồng bộ Engine thành công. Khởi động Cảm biến (Jiggle)...");
-                    
+
                     // JIGGLE: Nhích lên một tí để Engine Game cập nhật tọa độ chính xác của nhân vật
-                    await moveCharacter('up', 100); 
+                    await moveCharacter('up', 100);
                     await sleep(200); // Đợi engine load vị trí thực
-                    
+
                     currentTask = "MOVE";
                 } else {
                     console.log("⏳ [ĐỢI]: Đang chờ tín hiệu Engine (Đèn Xanh)...");
@@ -1844,7 +1936,7 @@ function injectPremiumUI() {
 
     const ui = document.createElement('div');
     ui.id = "sfl-premium-ui";
-    
+
     // Mặc định luôn là thu gọn (isCollapsed = true) nếu chưa lưu lựa chọn
     chrome.storage.local.get(['sfl_ui_collapsed'], (res) => {
         const isCollapsed = res.sfl_ui_collapsed !== false;
@@ -1884,7 +1976,7 @@ function renderInternalUI(ui, isCollapsed) {
                 ${getHiddenTechLayer()}
             </div>
         `;
-        
+
         ui.querySelector('#quick-toggle-btn').onclick = async (e) => {
             e.stopPropagation();
             await toggleBotLogic();
@@ -1921,7 +2013,7 @@ function renderInternalUI(ui, isCollapsed) {
 
             ${getHiddenTechLayer()}
         `;
-        
+
         const closeBtn = ui.querySelector('#ui-close-btn');
         if (closeBtn) closeBtn.onclick = (e) => {
             e.stopPropagation();
@@ -1991,7 +2083,7 @@ function updateAutoBtnUI() {
     // Cập nhật màu sắc cho chế độ UI thu gọn (Chữ S)
     const quickS = document.querySelector('#quick-toggle-btn span');
     const syncDot = document.getElementById('sync-indicator');
-    
+
     if (quickS) {
         quickS.style.color = isAutoEnabled ? '#2ed573' : '#FFD700';
         quickS.style.textShadow = isAutoEnabled ? '0 0 15px #2ed573' : '0 0 10px rgba(255,215,0,0.2)';
