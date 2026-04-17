@@ -1,6 +1,8 @@
-# SFL Auto-Deliver — Quy trình Vận hành Toàn bộ
+# SFL Auto-Deliver — Tài liệu Vận hành Hiện tại
+> Cập nhật lần cuối: 2026-04-17  
+> Phiên bản: **SFL Custom 2.0 (Trường)**
 
-Tài liệu này mô tả theo thứ tự từng bước bot chạy trong game, công nghệ sử dụng, lý do chọn, và cách tránh bị game phát hiện.
+Tài liệu này mô tả toàn bộ cơ chế bot đang hoạt động: kiến trúc, từng giai đoạn, công nghệ sử dụng, và cách tránh bị phát hiện.
 
 ---
 
@@ -9,140 +11,285 @@ Tài liệu này mô tả theo thứ tự từng bước bot chạy trong game, 
 Bot hoạt động qua 2 file chạy ở 2 "thế giới" riêng biệt:
 
 | File | Thế giới | Mô tả |
-|--|--|--|
-| `content.js` | **Isolated World** (Chrome Extension) | Điều phối tổng thể: scan đơn, điều hướng nhân vật, hậu kiểm UI |
-| `bridge.js` | **Main World** (cùng ngữ cảnh với game) | Móc vào engine: XState, Phaser, React Fiber |
+|---|---|---|
+| `content.js` | **Isolated World** (Chrome Extension) | Điều phối tổng thể: scan đơn, điều hướng nhân vật, hậu kiểm UI, license |
+| `bridge.js` | **Main World** (cùng ngữ cảnh với game) | Móc vào engine: XState, Phaser, React Fiber. Ghi tọa độ ra `document.body.dataset.*` |
+| `background.js` | **Service Worker** | Proxy HTTP đến Firebase (tránh CORS) để xác thực license |
 
 ---
 
-## Giai đoạn 1 — Khởi động Bridge (document_start)
+## ⚙️ Hệ thống Timer — Web Worker Engine (Anti-Throttle)
 
-**File:** `bridge.js`  
-**Thời điểm:** Ngay khi trang web bắt đầu tải (trước cả React)
+**Vấn đề:** Chrome throttle `setTimeout`/`setInterval` trên main thread khi tab mất focus → bot dừng.  
+**Giải pháp:** Web Worker chạy trên thread riêng, **không bị throttle** dù tab ẩn.
 
-### Bước 1.1 — Chiếm quyền `addEventListener`
+```
+[Web Worker] ← không bị throttle dù tab ẩn
+  ├─ tick 200ms  → postMessage('loop')      → mainLoop()
+  ├─ tick 500ms  → postMessage('watchdog')  → runWatchdog()
+  └─ tick 2000ms → postMessage('ui_check')  → kiểm tra UI còn hiển thị không
+
+[Main Thread] nhận message → xử lý callback
+```
+
+**Các hàm điều khiển Worker:**
+- `startBotWorker()` — tạo Worker, bắt đầu gửi tick
+- `stopBotWorker()` — terminate Worker, giải phóng CPU
+- `loop()` — alias gọi `startBotWorker()` (giữ tương thích code cũ)
+
+---
+
+## 🛡️ Hệ thống Phát hiện Kẹt — Global Stuck Watchdog v2
+
+**Thuật toán: Rolling Window Buffer** (thay thế phương pháp "distance from last point" cũ)
+
+```
+Cứ mỗi 2 giây → chụp 1 snapshot vị trí (x, y)
+Buffer giữ 10 điểm gần nhất = cửa sổ 20 giây
+
+Mỗi 500ms → so sánh vị trí hiện tại với điểm CŨ NHẤT trong buffer:
+  dist(hiện_tại, cũ_nhất) < 60px?
+  → CÓ = kẹt (kể cả nhích lên xuống 30–40px) → RELOAD
+  → KHÔNG = đã thoát ra → xóa buffer, bắt đầu lại
+```
+
+**Tại sao Rolling Window tốt hơn cách cũ:**
+- Cách cũ: reset baseline mỗi khi nhích 25px → bị lừa bởi jiggle up/down
+- Cách mới: so với điểm **20 giây trước** → bắt được mọi kiểu dao động
+
+**Điều kiện kích hoạt:** Chỉ khi `currentTask` ∈ {MOVE, TRAVEL, DELIVER, WAIT_SYNC}
+
+**Hành động khi phát hiện kẹt:**
+| Task đang chạy | Task được lưu trước reload |
+|---|---|
+| MOVE | MOVE → tiếp tục đi tới NPC |
+| TRAVEL | TRAVEL → thử chuyển map lại |
+| DELIVER (kẹt gần NPC) | → đổi thành MOVE → áp sát lại |
+| WAIT_SYNC (kẹt chờ map) | → đổi thành TRAVEL → chuyển map lại |
+
+---
+
+## 💾 Hệ thống Resume sau Reload
+
+Bot **tự động tiếp tục nhiệm vụ** sau khi reload trang:
+
+```
+saveMemory() lưu vào chrome.storage.local:
+  - isRunning, currentTask, targetNPC, targetIsland
+  - sfl_memory (delivery_queue, speedMultiplier, ...)
+  - licenseKey, userHWID
+
+Khi load lại → loadMemory() → nếu isRunning === true → startBotWorker()
+```
+
+**Không bao giờ bị mắc kẹt vô hạn:** Watchdog reload → resume → tiếp tục từ đúng task.
+
+---
+
+## Giai đoạn 1 — Khởi động Bridge (`document_start`)
+
+**File:** `bridge.js` | **Thời điểm:** Trước khi React load
+
+### 1.1 — Monkey-patch `addEventListener`
 ```javascript
 EventTarget.prototype.addEventListener = function(type, listener, options) { ... }
 ```
-- **Công nghệ:** Monkey-patch prototype của DOM
-- **Mục đích:** Ăn cắp và lưu lại toàn bộ listener `keydown`, `pointerdown`, `pointerup` của Phaser và React ngay từ lúc chúng đăng ký
-- **Tại sao không bị phát hiện:** Việc override prototype xảy ra ở `document_start` — **trước khi game load**. Game không thể phân biệt listener gốc hay listener bị thay thế
+- Lưu lại toàn bộ listener `keydown`, `pointerdown`, `pointerup` của Phaser & React
+- Xảy ra trước khi game load → game không thể phân biệt
 
-### Bước 1.2 — Scan liên tục (setInterval 500ms)
-- Gọi `findEntitiesInFiber()` mỗi 500ms
-- Quét toàn bộ cây React Fiber để tìm:
-  - Vị trí nhân vật (từ `mmoService → players → sessionId`)
-  - Phaser Game Instance (từ `stateNode.game`)
-  - XState `gameMachine` (từ `obj.state.context.state.delivery`)
-- Kết quả ghi vào `document.body.dataset.*` để `content.js` đọc được qua DOM
+### 1.2 — Scan liên tục (500ms)
+- Gọi `findEntitiesInFiber()` → quét cây React Fiber tìm:
+  - Vị trí nhân vật: `mmoService → players → sessionId`
+  - Phaser Game Instance: `stateNode.game`
+  - XState `gameMachine`: `obj.state.context.state.delivery`
+- Kết quả ghi vào `document.body.dataset.sflPos`, `sflEntities`, `sflNPCVisuals`
 
 ---
 
-## Giai đoạn 2 — Quét Đơn Hàng (SCAN)
+## Giai đoạn 2 — Khởi động & Xác thực License
 
-**File:** `content.js`  
-**Hàm:** `scanDeliveries()`
+**File:** `content.js` | **Hàm:** `checkLicenseRemote()`
 
-### Bước 2.1 — Mở Codex
-- Tìm icon giao hàng (img width ≈ 31.5px, left 50–150px)
-- Dùng `simulateFullClick()` → gửi `mousedown + mouseup + click` đầy đủ
-- **Tại sao không bị phát hiện:** Không dùng `.click()` đơn lẻ mà gửi chuỗi 3 event giống người thật
+### 2.1 — HWID Fingerprint
+- Tạo SHA-256 hash từ `userAgent + screen.width + screen.height + random salt`
+- Lưu vào `chrome.storage.local` — persistent qua reload
 
-### Bước 2.2 — Phát hiện Tim Đỏ (đơn có thể giao)
-- Quét các `div.grid > div` tìm `img.absolute.top-0.5.right-0.5.w-3` (icon tim)
-- Click vào đơn, đợi 1500ms cho chi tiết tải
-- Đọc tên NPC từ HTML (`img src` hoặc text trong panel chi tiết)
-- Đóng Codex, set `targetNPC` và `currentTask = "TRAVEL"`
+### 2.2 — Xác thực Firebase (qua background.js)
+- `content.js` → `chrome.runtime.sendMessage({action: "CHECK_LICENSE"})` → `background.js`
+- `background.js` → `fetch(Firebase REST API)` → trả về data
+- Kiểm tra: `status === "active"`, ngày hết hạn, HWID binding
 
----
-
-## Giai đoạn 3 — Di chuyển đến NPC (TRAVEL → MOVE)
-
-**File:** `content.js`  
-**Hàm:** `executePathToNPC()` → `navigateViaGraph()` → `graphBFS()`
-
-### Bước 3.1 — Xác định tọa độ NPC
-- Ưu tiên lấy từ `MASTER_NPC_DATA[island][npcName]` (tọa độ cứng)
-- **Tại sao dùng tọa độ cứng:** NPC không di chuyển, vị trí cố định 100%
-
-### Bước 3.2 — Điều hướng qua Đồ thị (Node Graph)
-- **Công nghệ:** Đồ thị liên thông (Graph) + BFS (Breadth-First Search)
-- **Cơ chế:**
-  1. Snap vị trí hiện tại đến Node gần nhất trong hệ thống
-  2. Tìm đường ngắn nhất qua các Node trung gian để đến vùng chứa NPC
-  3. Di chuyển giữa các Node theo quy tắc **Trục tọa độ (Axis-aligned)**: Đi ngang (X) trước, sau đó mới đi dọc (Y) -> **Tuyệt đối không đi chéo**.
-- **Tại sao:** Tránh các vật cản lớn mà A* thông thường khó xử lý, đồng thời mô phỏng cách người chơi thường nhấn phím (từng phím một thay vì nhấn tổ hợp).
-
-### Bước 3.3 — Fallback A* (nếu graph lỗi)
-- Nếu không có đồ thị cho map đó, bot sẽ quay lại dùng `moveTowardsTarget()` với thuật toán A* cơ bản
-- Quét ma trận va chạm từ Phaser scene (`SFL_GRID_REQUEST`)
-- Tìm đường lưới 32px để tránh vật cản nhỏ
-
-### Bước 3.4 — Phát hiện kẹt (Stuck Detection)
-- So sánh tọa độ thật (từ `document.body.dataset.sflPos`) mỗi 150ms
-- Nếu không nhúc nhích sau 10 tick → thực hiện "Random Jiggle" hoặc reset chu trình di chuyển.
+### 2.3 — HWID Binding
+- Lần đầu dùng key: ghi HWID vào Firebase (`PATCH`)
+- Lần sau: so sánh HWID → nếu khác máy → từ chối (`MISMATCH`)
 
 ---
 
-## Giai đoạn 4 — Tương tác NPC (DELIVER)
+## Giai đoạn 3 — Quét Đơn Hàng (SCAN → IDLE)
 
-**File:** `content.js` → `bridge.js`  
-**Hàm:** `interactWithNPC()` → `window.SFL_TRIGGER_NPC()`
+**File:** `content.js` | **Hàm:** `scanDeliveries()`
 
-### Bước 4.1 — Kiểm tra tiền điều kiện
-- Đảm bảo không có Codex/Dialog đang mở (`forceClosePanels()`)
+### 3.1 — Mở Codex
+- Tìm icon sách (img width ≈ 31.5px, left 50–200px)
+- `simulateFullClick()` → gửi `mousedown + mouseup + click` đầy đủ
+
+### 3.2 — Phase 1: Dọn dẹp đơn cũ (Skip)
+- Quét `.grid > div` tìm item màu cam `rgb(240,145,0)`
+- **CHỈ skip** nếu: không có khóa (`padlock`), không có tim (`heart`), phần thưởng là **coin hoặc flower**, không phải **Floater/Ticket**
+- Bảo vệ tuyệt đối mục Floater/Wandering/Special
+
+### 3.3 — Phase 2: Gom đơn có tim (Ready)
+- Tìm `img.absolute.top-0.5.right-0.5` (icon tim đỏ)
+- Click đơn → đọc tên NPC từ `p.capitalize.text-xs` trong panel chi tiết
+- **Lọc qua NPC_WHITELIST:** Chỉ lấy các NPC đã được cấu hình:
+
+```javascript
+const NPC_WHITELIST = ["betty", "blacksmith", "tango", "guria",
+                       "gambit", "grimbly", "grimtooth", "grubnuk", "gordo"];
+```
+
+### 3.4 — Tối ưu hóa Lộ trình (Nearest Neighbor)
+- `sortDeliveryQueue()` sắp xếp hàng chờ theo **chi phí di chuyển thật**
+- Tính cost dùng **Node Graph BFS** (nếu có đồ thị), fallback sang Euclidean
+- NPC cùng đảo ưu tiên trước, NPC khác đảo bị cộng penalty 10000
+
+---
+
+## Giai đoạn 4 — Di chuyển đến NPC (TRAVEL → WAIT_SYNC → MOVE)
+
+**File:** `content.js` | **Hàm:** `executePathToNPC()` → `navigateViaGraph()` → `moveStraight()`
+
+### 4.1 — Chuyển đảo (TRAVEL)
+- Đổi `window.location.hash` → `#/world/{island}`
+- Transit rule: Beach ↔ Kingdom phải qua Plaza trung gian
+- Sau khi đến Plaza (đích cuối): `location.reload()` để đồng bộ state
+
+### 4.2 — Chờ Engine đồng bộ (WAIT_SYNC)
+- Đợi `getGameData()` trả về `data.player` hợp lệ
+- Timeout → watchdog phát hiện → chuyển sang TRAVEL để thử lại
+
+### 4.3 — Điều hướng qua Node Graph (MOVE)
+```
+Ưu tiên: User Graph (chrome.storage) > Hardcoded Island Graph
+  1. findNearestNode(graph, curX, curY) → startNode
+  2. Nếu isNewMapMove → dùng node "root" làm điểm xuất phát
+  3. graphBFS(startNode, endNode) → danh sách node
+  4. moveStraight(wp.x, wp.y) cho từng node
+```
+
+### 4.4 — `moveStraight()` — Di chuyển Axis-Aligned
+- **X trước, Y sau** (không đi chéo — giống người thật nhấn phím)
+- **Dynamic Duration:** >100px → 800ms, <25px → 70ms, giữa → tuyến tính
+- **Node Snapping:** Dừng khi sai số < 14px
+- **Evasive Jiggle:** Kẹt sau 3 tick → lách vuông góc 150ms
+
+### 4.5 — Fallback A* (nếu không có graph)
+- `findPath(tx, ty)` → gửi `SFL_GRID_REQUEST` → nhận ma trận va chạm từ Phaser
+- Tìm đường trên lưới 32px tránh vật cản
+
+### 4.6 — Phát hiện Kẹt cục bộ (trong moveStraight/moveTowardsTarget)
+- Nếu không xê dịch > 20px trong **6 giây** → `saveMemory()` → `location.reload()`
+- **Phát hiện jiggle cục bộ:** `stuckCount > 3` → lách hướng vuông góc
+
+---
+
+## Giai đoạn 5 — Tương tác NPC (DELIVER)
+
+**File:** `content.js` + `bridge.js` | **Hàm:** `interactWithNPC()`
+
+### 5.1 — Tiền điều kiện
+- `forceClosePanels()` đóng mọi Codex/Dialog đang mở
 - Đợi 800ms để màn hình ổn định
 
-### Bước 4.2 — PLAN-D: Giao hàng Native qua XState
-**Công nghệ:** XState Interpreter `.send()`  
-```javascript
-send.call(svc, { type: "order.delivered", id: targetOrder.id });
-```
-- Scan `state.context.state.delivery.orders` để tìm order theo field `from` khớp tên NPC
-- Gửi `order.delivered` với đúng `id` — event này được `gameMachine` chấp nhận 100% khi đang ở state "playing"
-- **Tại sao an toàn:** Đây là event native của game, không khác gì click nút "Deliver" thật. Game sẽ tự đặt lịch Autosave sau một khoảng thời gian theo cơ chế thông thường
+### 5.2 — Kích hoạt tương tác
+- `document.dispatchEvent(new CustomEvent('SFL_TRIGGER_REQUEST', { detail: targetNPC }))` → bridge xử lý
+- Song song: bắn `simulateCanvasClick()` vào `burstPoints` của NPC (tọa độ pixel đã lưu)
 
-### Bước 4.3 — PLAN-X: Replay lệnh INTERACT đã nghe lén (fallback)
-- Nếu đã từng capture được lệnh INTERACT thật (người dùng click thủ công), ta replay lệnh đó với tên NPC được thay thế
-- **Tại sao:** Replay lệnh gốc 100% giống người thật, không thể bị phát hiện
+### 5.3 — Xác nhận thành công
+- Bridge ghi `document.body.dataset.sflInteractSuccess = "true"` khi delivery thành công
+- `content.js` poll mỗi vòng lặp → nhận tín hiệu → xóa NPC khỏi `delivery_queue`
 
-### Bước 4.4 — PLAN-E: Ghost Keyboard Event
-- Bắn thẳng phím 'E' vào danh sách listener Phaser đã cướp với POJO `{ isTrusted: true }`
-- **Tại sao không bị chặn:** Phaser không kiểm tra `instanceof Event` mà chỉ đọc `.key`, `.keyCode`, và `isTrusted`. POJO đã giả đủ 3 trường này
+### 5.4 — Xử lý hội thoại
+- Quét nút theo priority: `deliver > complete > trade > claim > sell > next > continue > got it`
+- Click nút → nếu là "terminal verb" → đơn hoàn thành → về IDLE
 
-### Bước 4.5 — PLAN-Y: React Fiber Prop Injection
-- Duyệt cây React Fiber từ canvas lên 200 node
-- Tìm mọi prop có tên bắt đầu `on` hoặc chứa `interact/speak/dialog`
-- Gọi trực tiếp: `props.onInteract(npcName)` và `props.onInteract({ npc: npcName })`
-- **Tại sao:** React Fiber sẽ không phân biệt được lời gọi từ bot hay từ click chuột thật, vì ta truy cập chính con trỏ hàm gốc
-
-### Bước 4.6 — PLAN-A: Phaser Engine Direct Emit (nếu Engine đã bắt được)
-- Tìm Sprite NPC trong `scene.children.list` theo `texture.key`
-- Gọi `npc.emit('pointerdown', ptr)` và `scene.input.emit('gameobjectdown', ptr, npc)`
-- **Tại sao:** Đây là đường dẫn chính thức của Phaser input pipeline — hoàn toàn không bị game phân biệt
-
-### Bước 4.7 — PLAN-B: Toán học Blind-Fire (last resort)
-- Tính offset pixels từ vị trí nhân vật đến NPC theo zoom factor ~3.0
-- Rải 25 điểm click hình 5×5, spacing 30px để bù sai số
-- Gửi `dispatchEvent(PointerEvent)` + bắn Ghost Pointer vào listener Phaser
-- **Rủi ro cao:** Có thể click nhầm vật thể, chỉ dùng khi mọi plan khác thất bại
+### 5.5 — Jiggle khi không mở được dialog
+- Sau mỗi 2 lần thất bại → nhích nhẹ `up → down` 100ms để kích hoạt sensor va chạm
+- Tối đa 10 lần thử → nếu vẫn thất bại → `currentTask = "IDLE"` (bỏ qua, lấy đơn tiếp)
 
 ---
 
-## Giai đoạn 5 — Sau khi giao hàng (IDLE)
+## Giai đoạn 6 — Về IDLE & Lặp lại
 
-- `currentTask = "IDLE"` → vòng lặp chính chờ 3 giây rồi quay lại SCAN
-- Codex được mở lại để tìm đơn tiếp theo
+- Xóa NPC đã giao khỏi `delivery_queue`
+- `currentTask = "IDLE"` → `sortDeliveryQueue()` → lấy NPC gần nhất tiếp theo
+- Nếu queue trống → `scanDeliveries()` để tìm đơn mới
+- Nếu không có đơn nào sẵn sàng → `isRunning = false` → dừng để tiết kiệm CPU
+
+---
+
+## Hệ thống Tọa độ
+
+### Nguồn dữ liệu (theo thứ tự ưu tiên)
+```
+1. document.body.dataset.sflPos        ← Bridge Omni-Pulse (nhanh nhất)
+2. window.postMessage (SFL_OMNI_PULSE) ← Bridge fallback
+3. React Fiber scan                    ← Dự phòng khi bridge crash
+```
+
+### MASTER_NPC_DATA
+- Tải từ `npc_locations.json` khi script khởi động (`syncNPCLocations()`)
+- Format: `{ plaza: { betty: { x, y }, ... }, beach: { ... } }`
+
+### Node Graph
+- **Hardcoded:** `islands_graph_data.js` → `window.SFL_ISLAND_GRAPHS`
+- **User custom:** `chrome.storage.local['sfl_node_graphs']`
+- User graph ưu tiên hơn hardcoded
 
 ---
 
 ## Cơ chế Tránh Phát hiện
 
 | Kỹ thuật | Mô tả |
-|--|--|
-| **Không dùng `.dispatchEvent()` thông thường** | `isTrusted: false` bị Phaser và React reject. Thay bằng gọi thẳng listener function với POJO |
-| **Không tự thêm event listener mới** | Chỉ đọc listener của game bằng cách override `addEventListener` trước khi game load |
-| **Chạy ở Main World** | `bridge.js` chạy cùng bối cảnh JS với game → truy cập được tất cả biến toàn cục |
-| **Dùng event native** | `order.delivered` là event game tự định nghĩa → không có cách nào phân biệt |
-| **Mô phỏng typing speed** | Di chuyển theo duration tính toán từ khoảng cách, không teleport ngay lập tức |
-| **Không dùng Selenium/Puppeteer** | Không có WebDriver fingerprint — extension Chrome là môi trường bình thường trên trình duyệt |
+|---|---|
+| **Không dùng `.dispatchEvent()` thông thường** | `isTrusted: false` bị Phaser/React reject. Gọi thẳng listener function với POJO |
+| **Monkey-patch trước game load** | Override `addEventListener` ở `document_start` — game không thể biết |
+| **Event native của game** | `order.delivered` là event game tự định nghĩa → không thể phân biệt |
+| **Axis-aligned movement** | Di chuyển từng trục, mô phỏng người thật nhấn phím ArrowKey |
+| **Dynamic duration** | Thời gian nhấn phím tính từ khoảng cách thực tế, không cố định |
+| **Web Worker Timer** | Bot chạy ổn định dù tab ẩn, không cần tab được focus |
+| **Chrome Extension context** | Không có WebDriver fingerprint — môi trường bình thường |
+
+---
+
+## State Machine — Luồng chuyển trạng thái
+
+```
+IDLE
+ ├─ queue còn đơn → TRAVEL
+ └─ queue trống   → scanDeliveries()
+                      ├─ có đơn → TRAVEL
+                      └─ không có → dừng (isRunning = false)
+
+TRAVEL → (chuyển đảo xong) → WAIT_SYNC
+WAIT_SYNC → (Engine sync) → MOVE
+MOVE → (tới nơi) → DELIVER
+     → (thất bại) → IDLE
+
+DELIVER → (thành công) → IDLE
+        → (10 lần thất bại) → IDLE
+```
+
+---
+
+## Thông số cấu hình quan trọng
+
+| Hằng số | Giá trị | Ý nghĩa |
+|---|---|---|
+| `SNAPSHOT_INTERVAL_MS` | 2000ms | Watchdog chụp vị trí mỗi 2s |
+| `MAX_SNAPSHOTS` | 10 | Buffer 20 giây lịch sử |
+| `ESCAPE_RADIUS` | 60px | Phải thoát xa hơn 60px thì mới không coi là kẹt |
+| `NPC_WHITELIST` | 9 NPC | Danh sách NPC được phép giao (cấu hình cứng) |
+| `BASE_SPEED` | 0.1 | 100px/1000ms ở speedMultiplier=1.0 |
+| Worker loop tick | 200ms | Tần suất gọi mainLoop() |
+| Worker watchdog tick | 500ms | Tần suất kiểm tra stuck |
