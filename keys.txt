@@ -12,3 +12,5 @@ Key: G0LD-DUA6-0KCU-OWVA | Owner: truong | Exp: 2027-03-29
 
 Key: G0LD-DFDE-1FPS-UMPR | Owner: test | Exp: 2027-03-30
 
+Key: G0LD-CTQZ-UNN8-WVA1 | Owner: test | Exp: 2027-04-17
+

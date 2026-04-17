@@ -13,6 +13,27 @@ let memory = {
     speedMultiplier: 1.0
 };
 
+// Danh sách NPC bị chặn (tải từ blocked_npcs.json)
+let blockedNPCs = [];
+
+// Tải danh sách NPC bị chặn từ file blocked_npcs.json
+async function loadBlockedNPCs() {
+    try {
+        const url = chrome.runtime.getURL('blocked_npcs.json');
+        const response = await fetch(url);
+        const data = await response.json();
+        blockedNPCs = (data.blocked || []).map(n => n.toLowerCase().trim());
+        if (blockedNPCs.length > 0) {
+            console.log(`🚫 [BLOCKED]: Đã tải danh sách chặn: [${blockedNPCs.join(', ')}]`);
+        } else {
+            console.log('✅ [BLOCKED]: Không có NPC nào bị chặn.');
+        }
+    } catch (e) {
+        console.warn('⚠️ [BLOCKED]: Không thể tải blocked_npcs.json:', e);
+        blockedNPCs = [];
+    }
+}
+
 // Đồ thị node người dùng tự nhập (load từ chrome.storage.local)
 let userNodeGraphs = {};
 chrome.storage.local.get(['sfl_node_graphs'], r => {
@@ -1035,8 +1056,14 @@ async function scanDeliveries() {
 
                 if (npcNameFound) {
                     if (!memory.delivery_queue.includes(npcNameFound)) {
-                        console.log(`✅ [GOM]: Đã nạp NPC: ${npcNameFound.toUpperCase()} vào hàng chờ.`);
-                        memory.delivery_queue.push(npcNameFound);
+                        // Kiểm tra NPC có trong danh sách bị chặn không
+                        const isBlocked = blockedNPCs.some(b => npcNameFound.includes(b) || b.includes(npcNameFound));
+                        if (isBlocked) {
+                            console.log(`🚫 [BLOCKED]: Bỏ qua NPC bị chặn: ${npcNameFound.toUpperCase()}`);
+                        } else {
+                            console.log(`✅ [GOM]: Đã nạp NPC: ${npcNameFound.toUpperCase()} vào hàng chờ.`);
+                            memory.delivery_queue.push(npcNameFound);
+                        }
                     }
                     totalItemsReady++;
                 } else {
@@ -1535,6 +1562,7 @@ async function loop() {
 (async () => {
     console.log("📡 [SYSTEM]: Khởi động Engine Persistence & Dashboard...");
     await loadMemory();
+    await loadBlockedNPCs();
     await getUniqueHWID();
 
     // Hiển thị UI ngay lập tức

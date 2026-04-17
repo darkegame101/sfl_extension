@@ -34,7 +34,7 @@
     }
   ],
   "web_accessible_resources": [{
-    "resources": ["bridge.js"],
+    "resources": ["bridge.js", "blocked_npcs.json"],
     "matches": ["https://sunflower-land.com/*"]
   }]
 }
