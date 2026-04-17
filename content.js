@@ -16,6 +16,48 @@ let memory = {
 // Danh sách NPC bị chặn (tải từ blocked_npcs.json)
 let blockedNPCs = [];
 
+// --- ANTI-THROTTLING & ANTI-AFK SCRIPT INJECTION ---
+// Kích hoạt ngay lập tức để chặn game phát hiện Tab bị ẩn
+function injectAntiThrottlingScript() {
+    const script = document.createElement('script');
+    script.textContent = `
+        (function() {
+            // 1. Ép trình duyệt luôn báo cho game biết là Tab đang mở
+            Object.defineProperty(document, 'visibilityState', {
+                get: function() { return 'visible'; },
+                configurable: true
+            });
+            Object.defineProperty(document, 'hidden', {
+                get: function() { return false; },
+                configurable: true
+            });
+            
+            // 2. Chặn đứng các sự kiện "ẩn tab" (visibilitychange) truyền tới game
+            const originalDocAddEventListener = document.addEventListener;
+            document.addEventListener = function(type, listener, options) {
+                if (type === 'visibilitychange' || type === 'webkitvisibilitychange') {
+                    return; // Vô hiệu hóa
+                }
+                return originalDocAddEventListener.call(document, type, listener, options);
+            };
+
+            const originalWinAddEventListener = window.addEventListener;
+            window.addEventListener = function(type, listener, options) {
+                if (type === 'visibilitychange' || type === 'pagehide') {
+                    return; // Vô hiệu hóa
+                }
+                return originalWinAddEventListener.call(window, type, listener, options);
+            };
+
+            console.log("🛡️ [ANTI-AFK]: Đã kích hoạt lá chắn bảo vệ. Tool vẫn chạy mượt khi ẩn Tab!");
+        })();
+    `;
+    (document.head || document.documentElement).appendChild(script);
+    script.remove();
+}
+injectAntiThrottlingScript();
+
+
 // Tải danh sách NPC bị chặn từ file blocked_npcs.json
 async function loadBlockedNPCs() {
     try {
@@ -672,11 +714,22 @@ async function moveTowardsTarget(tx, ty) {
 // - Evasive Jiggle: Stuck sau 3 hiệp (0.5s), lách vuông góc 150ms
 async function moveStraight(tx, ty) {
     let stuckCount = 0;
+    let totalJiggles = 0;
     let lastX = 0, lastY = 0;
     let maxSteps = 200;
+    const startTime = Date.now();
 
     while (isRunning && maxSteps > 0) {
         maxSteps--;
+        
+        // --- TIMEOUT CHỐNG KẸT VÔ TẬN (15 giây) ---
+        if (Date.now() - startTime > 15000) {
+            console.error("🚨 [FATAL TIMEOUT]: Kẹt quá 15 giây khi cố gắng đến một điểm. Bắt buộc TẢI LẠI TRANG để gỡ kẹt!");
+            saveMemory();
+            location.reload();
+            return;
+        }
+
         const data = getGameData();
         if (!data || !data.player) break;
 
@@ -696,18 +749,27 @@ async function moveStraight(tx, ty) {
             stuckCount++;
         } else {
             stuckCount = 0;
+            totalJiggles = 0; // Đã thoát kẹt thành công
         }
         lastX = curX; lastY = curY;
 
         // --- INSTANT REFLEX (Lách vuông góc 90 độ) ---
         if (stuckCount >= 3) {
+            totalJiggles++;
+            if (totalJiggles >= 8) {
+                console.error("🚨 [FATAL STUCK]: Bị kẹt vĩnh viễn! Bắt buộc TẢI LẠI TRANG để gỡ lỗi...");
+                saveMemory();
+                location.reload();
+                return;
+            }
+
             console.warn(`🚧 [STUCK-REFLEX]: Bị chặn! Thực hiện LÁCH VUÔNG GÓC 150ms...`);
 
             // Xác định trục đang đi để lách theo trục còn lại
             const isMovingX = Math.abs(dx) >= 14;
             const evasiveDir = isMovingX
-                ? (stuckCount % 2 === 0 ? 'up' : 'down')
-                : (stuckCount % 2 === 0 ? 'left' : 'right');
+                ? (totalJiggles % 2 === 0 ? 'up' : 'down')
+                : (totalJiggles % 2 === 0 ? 'left' : 'right');
 
             console.log(`👟 [JIGGLE]: Nhích sang [${evasiveDir.toUpperCase()}] trong 150ms.`);
             await moveCharacter(evasiveDir, 150);
@@ -760,7 +822,7 @@ const MASTER_NPC_DATA = {
         "tywin": { "x": 64, "y": 84, "island": "plaza" },
         "raven": { "x": 281, "y": 83, "island": "plaza" },
         "cornwell": { "x": 497, "y": 126, "island": "plaza" },
-        "tinker": { "x": 0, "y": 0, "island": "plaza" },
+        "tinker": { "x": 281, "y": 83, "island": "plaza" },
         "betty": { "x": 529, "y": 122, "island": "plaza" },
         "blacksmith": { "x": 365, "y": 139, "island": "plaza" },
         "grimbly": { "x": 783, "y": 370, "island": "plaza" },
@@ -777,9 +839,9 @@ const MASTER_NPC_DATA = {
         "finley": { "x": 245, "y": 457, "island": "beach" }
     },
     "kingdom": {
-        "gambit": { "x": 250, "y": 150, "island": "kingdom" },
-        "jester": { "x": 0, "y": 0, "island": "kingdom" },
-        "victoria": { "x": 0, "y": -300, "island": "kingdom" }
+        "gambit": { "x": 336, "y": 764, "island": "kingdom" },
+        "jester": { "x": 111, "y": 202, "island": "kingdom" },
+        "victoria": { "x": 240, "y": 123, "island": "kingdom" }
     },
     "retreat": {
         "guria": { "x": 409, "y": 246, "island": "retreat" },
@@ -1092,6 +1154,7 @@ async function scanDeliveries() {
         currentTask = "IDLE";
 
         await forceClosePanels();
+        await triggerGameSave(1000); // Lưu state khi dừng bot hoàn toàn
         updateAutoBtnUI(); // Đồng bộ lại nút bấm thành START
         saveMemory();
     }
@@ -1194,11 +1257,13 @@ async function travelToIsland(islandName) {
 
         // RELOAD KHI ĐẾN PLAZA ĐỂ ĐỒNG BỘ STATE (Theo yêu cầu User)
         if (newIsland === "plaza") {
-            console.warn("🔄 [RELOAD]: Đã tới Plaza. Thực hiện làm mới trang để đồng bộ dữ liệu...");
+            console.warn("🔄 [RELOAD]: Đã tới Plaza. Chờ 4 giây để game Auto-Save trước khi làm mới trang...");
+            await triggerGameSave(4000);
             saveMemory();
             location.reload();
             return;
         }
+        await triggerGameSave(500); // Lưu state xác nhận đã chuyển map xong
         currentTask = "WAIT_SYNC";
     } else {
         console.warn(`⚠️ [TRAVEL]: URL chưa khớp (Hiện: ${newIsland}, Mong đợi: ${targetIslandName}). Đang đợi thêm...`);
@@ -1228,6 +1293,15 @@ function simulateCanvasClick(x, y) {
     canvas.dispatchEvent(new MouseEvent('click', common));
 }
 
+// Hàm kích hoạt lưu game (Auto-Save) chuẩn của SFL
+async function triggerGameSave(waitMs = 500) {
+    console.log("💾 [SAVE]: Kích hoạt lưu game bằng click và blur...");
+    try { simulateCanvasClick(10, 10); } catch(e){}
+    window.dispatchEvent(new Event('blur'));
+    document.body.click();
+    if (waitMs > 0) await sleep(waitMs);
+}
+
 async function interactWithNPC() {
     const name = (targetNPC || "").toUpperCase();
     const canvas = document.querySelector('canvas');
@@ -1253,6 +1327,7 @@ async function interactWithNPC() {
             }
 
             forceStopAllKeys();
+            await triggerGameSave(500); // Lưu state ngay sau khi giao hàng xong
             await sleep(1500);
             currentTask = "IDLE"; // Về IDLE để lấy đơn tiếp theo từ queue
             saveMemory();
@@ -1478,8 +1553,12 @@ async function mainLoop() {
             case "WAIT_SYNC":
                 const sync = getGameData();
                 if (sync && sync.player) {
-                    console.log("✅ [HỆ THỐNG]: Đồng bộ Engine thành công. Bắt đầu di chuyển...");
-                    // CHỈ set isNewMapMove nếu thực sự vừa đổi Map (không dư thừa khi giao cùng map)
+                    console.log("✅ [HỆ THỐNG]: Đồng bộ Engine thành công. Khởi động Cảm biến (Jiggle)...");
+                    
+                    // JIGGLE: Nhích lên một tí để Engine Game cập nhật tọa độ chính xác của nhân vật
+                    await moveCharacter('up', 100); 
+                    await sleep(200); // Đợi engine load vị trí thực
+                    
                     currentTask = "MOVE";
                 } else {
                     console.log("⏳ [ĐỢI]: Đang chờ tín hiệu Engine (Đèn Xanh)...");
@@ -1801,6 +1880,7 @@ function renderInternalUI(ui, isCollapsed) {
             </div>
             <div style="display:none !important;">
                 <button id="auto_btn"></button><div id="bot-status-disp"></div><div id="target_npc_disp"></div>
+                <span id="radar_x">0</span><span id="radar_y">0</span>
                 ${getHiddenTechLayer()}
             </div>
         `;
@@ -1833,7 +1913,10 @@ function renderInternalUI(ui, isCollapsed) {
 
             <div style="text-align: center; width: 100%;">
                 <div id="bot-status-disp" style="font-size: 8px; color: #888; font-weight: 600; text-transform: uppercase;">READY</div>
-                <div id="target_npc_disp" style="font-size: 9px; color: #FFD700; font-weight: 800; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-</div>
+                <div id="target_npc_disp" style="font-size: 9px; color: #FFD700; font-weight: 800; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px;">-</div>
+                <div style="font-size: 8px; color: #aaa; background: rgba(0,0,0,0.5); border-radius: 4px; padding: 2px;">
+                    📍 X: <span id="radar_x" style="color: #2ed573; font-family: monospace; font-size: 9px;">0</span> | Y: <span id="radar_y" style="color: #2ed573; font-family: monospace; font-size: 9px;">0</span>
+                </div>
             </div>
 
             ${getHiddenTechLayer()}
@@ -1879,7 +1962,6 @@ async function toggleBotLogic() {
 function getHiddenTechLayer() {
     return `
         <div style="display: none !important;">
-            <span id="radar_x">0</span><span id="radar_y">0</span>
             <input type="number" id="manual_x" value="0">
             <input type="number" id="manual_y" value="0">
             <input type="range" id="speed_slide" value="1.0">
@@ -1894,16 +1976,28 @@ function getHiddenTechLayer() {
 // Đồng bộ hóa Giao diện Nút Bấm Tự động
 function updateAutoBtnUI() {
     const autoBtn = document.getElementById('auto_btn');
-    if (!autoBtn) return;
+    if (autoBtn) {
+        autoBtn.innerText = isAutoEnabled ? '🛑 STOP BOT' : '🚀 DELIVER';
 
-    autoBtn.innerText = isAutoEnabled ? '🛑 STOP BOT' : '🚀 DELIVER';
+        if (isAutoEnabled) {
+            autoBtn.style.background = 'linear-gradient(135deg, #ff4757 0%, #ee5253 100%)';
+            autoBtn.style.boxShadow = '0 0 10px rgba(255, 71, 87, 0.4)';
+        } else {
+            autoBtn.style.background = 'linear-gradient(135deg, #2f3542 0%, #2f3542 100%)';
+            autoBtn.style.boxShadow = 'none';
+        }
+    }
 
-    if (isAutoEnabled) {
-        autoBtn.style.background = 'linear-gradient(135deg, #ff4757 0%, #ee5253 100%)';
-        autoBtn.style.boxShadow = '0 0 10px rgba(255, 71, 87, 0.4)';
-    } else {
-        autoBtn.style.background = 'linear-gradient(135deg, #2f3542 0%, #2f3542 100%)';
-        autoBtn.style.boxShadow = 'none';
+    // Cập nhật màu sắc cho chế độ UI thu gọn (Chữ S)
+    const quickS = document.querySelector('#quick-toggle-btn span');
+    const syncDot = document.getElementById('sync-indicator');
+    
+    if (quickS) {
+        quickS.style.color = isAutoEnabled ? '#2ed573' : '#FFD700';
+        quickS.style.textShadow = isAutoEnabled ? '0 0 15px #2ed573' : '0 0 10px rgba(255,215,0,0.2)';
+    }
+    if (syncDot) {
+        syncDot.style.background = isAutoEnabled ? '#2ed573' : '#555';
     }
 }
 
