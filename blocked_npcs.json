@@ -1,16 +1,10 @@
 {
-  "_comment": "Thêm tên NPC vào mảng 'blocked' để bot BỎ QUA không giao hàng cho họ.",
+  "_comment": "Thêm tên NPC vào mảng 'blocked_a' hoặc 'blocked_b' để bot BỎ QUA không giao hàng cho họ.",
   "_instructions": [
     "Tên phải viết THƯỜNG, khớp với tên trong game (ví dụ: 'pete', 'old salty', 'pumpkin\\' pete').",
     "Sau khi chỉnh sửa file này, nhấn Reload Extension để áp dụng."
   ],
-  "_all_known_npcs": {
-    "plaza": ["pete", "pumpkin' pete", "peggy", "bert", "tywin", "raven", "cornwell", "tinker", "betty", "blacksmith", "grimbly", "timmy", "grimtooth"],
-    "beach": ["corale", "tango", "old salty", "miranda", "pharaoh", "finn", "finley"],
-    "kingdom": ["gambit", "jester", "victoria"],
-    "retreat": ["guria", "grubnuk", "gordo"]
-  },
-  "blocked": [
+  "blocked_a": [
     "bert",
     "raven",
     "pete",
@@ -23,5 +17,24 @@
     "miranda",
     "jester",
     "timmy"
+    
+  ],
+  "blocked_b": [
+    "bert",
+    "raven",
+    "pete",
+    "tywin",
+    "cornwell",
+    "tinker",
+    "finley",
+    "finn",
+    "pharaoh",
+    "miranda",
+    "jester",
+    "timmy",
+    "old salty",
+    "corale",
+    "victoria",
+    "peggy"
   ]
 }

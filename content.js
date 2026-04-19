@@ -14,112 +14,40 @@ let memory = {
 };
 
 // Danh sách NPC bị chặn (tải từ blocked_npcs.json)
-let blockedNPCs = [];
+let blockedNPCs_A = [];
+let blockedNPCs_B = [];
+let activeProfile = 'A'; // 'A' hoặc 'B'
 
-// --- ANTI-THROTTLING & ANTI-AFK SCRIPT INJECTION ---
-// Kích hoạt ngay lập tức để chặn game phát hiện Tab bị ẩn
-function injectAntiThrottlingScript() {
-    const script = document.createElement('script');
-    script.textContent = `
-        (function() {
-            console.log("🚀 [SFL ANTI-AFK] Khởi động màng bảo vệ V8 (Auto Balance 60FPS)...");
+// --- ANTI-AFK & ANTI-THROTTLING ENGINE ---
+// Hệ thống bảo vệ tab đã được chuyển sang bridge.js để lách CSP 100%
 
-            Object.defineProperty(document, 'hidden', { get: () => false, configurable: true });
-            Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
-            Object.defineProperty(document, 'webkitHidden', { get: () => false, configurable: true });
-            Object.defineProperty(document, 'hasFocus', { value: () => true, configurable: true });
+let sflSilentAudio = null;
 
-            let eventsCaught = 0;
-            const blockVisibility = (e) => {
-                if(e.isTrusted) {
-                    eventsCaught++;
-                    e.stopImmediatePropagation();
-                    e.stopPropagation();
-                }
-            };
+// --- AUDIO HACK: Ép Chrome không bóp Tab bằng cách phát nhạc vô hình ---
+function injectSilentAudioHack() {
+    // Tệp âm thanh câm (silent) định dạng WAV siêu nhẹ (Base64)
+    const silentWAV = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+    sflSilentAudio = new Audio(silentWAV);
+    sflSilentAudio.loop = true;
+    sflSilentAudio.volume = 0.01;
 
-            const eventsToBlock = ['visibilitychange', 'webkitvisibilitychange', 'pagehide', 'blur', 'focusout'];
-            eventsToBlock.forEach(evt => {
-                document.addEventListener(evt, blockVisibility, true);
-                window.addEventListener(evt, blockVisibility, true);
-            });
-
-            const workerCode = "setInterval(() => { self.postMessage('tick'); }, 16);";
-            const blob = new Blob([workerCode], { type: 'application/javascript' });
-            const rafWorker = new Worker(URL.createObjectURL(blob));
-
-            const originalRAF = window.requestAnimationFrame;
-            const pendingCallbacks = new Map();
-            let rafCounter = 0;
-            let framesThisSecond = 0;
-            let workerTicksThisSecond = 0;
-            let lastChromeFrameTime = performance.now();
-
-            rafWorker.onmessage = function() {
-                workerTicksThisSecond++;
-                
-                if (performance.now() - lastChromeFrameTime < 100) return;
-
-                if (pendingCallbacks.size === 0) return;
-                
-                const now = performance.now();
-                const callbacksToRun = Array.from(pendingCallbacks.values());
-                pendingCallbacks.clear();
-                
-                for (const cb of callbacksToRun) {
-                    cb(now);
-                    framesThisSecond++;
-                }
-            };
-
-            window.requestAnimationFrame = function(callback) {
-                const id = ++rafCounter;
-                pendingCallbacks.set(id, callback);
-
-                originalRAF.call(window, (time) => {
-                    lastChromeFrameTime = performance.now();
-                    if (pendingCallbacks.has(id)) {
-                        pendingCallbacks.delete(id);
-                        framesThisSecond++;
-                        callback(time);
-                    }
-                });
-
-                return id;
-            };
-
-            window.cancelAnimationFrame = function(id) {
-                pendingCallbacks.delete(id);
-            };
-
-            setInterval(() => {
-                const fps = framesThisSecond;
-                const workerTicks = workerTicksThisSecond;
-                framesThisSecond = 0;
-                workerTicksThisSecond = 0;
-                
-                let statusTag = '';
-                if (fps >= 50 && performance.now() - lastChromeFrameTime < 100) {
-                    statusTag = "🟢 CHROME GỐC (Tab Đang Mở)";
-                } else if (fps > 0) {
-                    statusTag = "🔥 WORKER GÁNH GAME (Bù tốc độ)";
-                } else {
-                    statusTag = "🔴 GAME BỊ TẠM DỪNG";
-                }
-
-                console.log(
-                    "%c[TRACKER] Chặn: " + eventsCaught + " | Tim Worker: " + workerTicks + "/s | FPS Thực Tế: " + fps + " => " + statusTag,
-                    "color: " + (fps >= 50 ? '#00ff00' : (fps > 0 ? '#ff9900' : 'red')) + "; font-weight: bold;"
-                );
-            }, 1000);
-
-            console.log("✅ [SFL ANTI-AFK] Lá chắn V8 (Auto Balance) đã sẵn sàng!");
-        })();
-    `;
-    (document.head || document.documentElement).appendChild(script);
-    script.remove();
+    // Bắt sự kiện click hoặc gõ phím đầu tiên để kích hoạt loa
+    document.addEventListener('click', activateAudioHack);
+    document.addEventListener('keydown', activateAudioHack);
 }
-injectAntiThrottlingScript();
+
+function activateAudioHack() {
+    if (sflSilentAudio) {
+        sflSilentAudio.play().then(() => {
+            console.log("🎵 [AUDIO HACK]: Đã phát nhạc câm! Từ giờ Chrome sẽ KHÔNG bóp nghẹt Tab này nữa.");
+            document.removeEventListener('click', activateAudioHack);
+            document.removeEventListener('keydown', activateAudioHack);
+        }).catch(e => {
+            // Bỏ qua lỗi nếu chưa tương tác
+        });
+    }
+}
+injectSilentAudioHack();
 
 
 // Tải danh sách NPC bị chặn từ file blocked_npcs.json
@@ -128,15 +56,13 @@ async function loadBlockedNPCs() {
         const url = chrome.runtime.getURL('blocked_npcs.json');
         const response = await fetch(url);
         const data = await response.json();
-        blockedNPCs = (data.blocked || []).map(n => n.toLowerCase().trim());
-        if (blockedNPCs.length > 0) {
-            console.log(`🚫 [BLOCKED]: Đã tải danh sách chặn: [${blockedNPCs.join(', ')}]`);
-        } else {
-            console.log('✅ [BLOCKED]: Không có NPC nào bị chặn.');
-        }
+        blockedNPCs_A = (data.blocked_a || []).map(n => n.toLowerCase().trim());
+        blockedNPCs_B = (data.blocked_b || []).map(n => n.toLowerCase().trim());
+        console.log(`🚫 [BLOCKED]: Đã tải danh sách chặn A (${blockedNPCs_A.length} NPC) và B (${blockedNPCs_B.length} NPC)`);
     } catch (e) {
-        console.warn('⚠️ [BLOCKED]: Không thể tải blocked_npcs.json:', e);
-        blockedNPCs = [];
+        console.warn('⚠️ [BLOCKED]: Không thể tải hoặc sai định dạng blocked_npcs.json:', e);
+        blockedNPCs_A = [];
+        blockedNPCs_B = [];
     }
 }
 
@@ -222,7 +148,7 @@ async function findPath(tx, ty) {
     const gridData = await new Promise(resolve => {
         const npcToExclude = (targetNPC || "").toLowerCase();
         document.dispatchEvent(new CustomEvent('SFL_GRID_REQUEST', { detail: { minX: curX - range, minY: curY - range, maxX: curX + range, maxY: curY + range, excludeNPC: npcToExclude, step } }));
-        setTimeout(() => resolve(JSON.parse(document.body.dataset.sflGrid || "null")), 150);
+        sleep(150).then(() => resolve(JSON.parse(document.body.dataset.sflGrid || "null")));
     });
 
     if (!gridData || !gridData.grid) return null;
@@ -633,14 +559,18 @@ async function moveCharacter(direction, duration = 500) {
     document.body.focus();
     const targets = [window, document, ...Array.from(document.querySelectorAll('canvas'))];
 
-    const interval = setInterval(() => {
-        const params = { key, code: key, keyCode, which: keyCode, bubbles: true, cancelable: true, repeat: true, view: window };
-        targets.forEach(t => t.dispatchEvent(new KeyboardEvent('keydown', params)));
-    }, 25);
+    let isMoving = true;
+    (async () => {
+        while (isMoving) {
+            const params = { key, code: key, keyCode, which: keyCode, bubbles: true, cancelable: true, repeat: true, view: window };
+            targets.forEach(t => t.dispatchEvent(new KeyboardEvent('keydown', params)));
+            await sleep(25);
+        }
+    })();
 
     await sleep(adjustedDuration);
 
-    clearInterval(interval);
+    isMoving = false;
     const upParams = { key, code: key, keyCode, which: keyCode, bubbles: true, cancelable: true, view: window };
     targets.forEach(t => t.dispatchEvent(new KeyboardEvent('keyup', upParams)));
     activeKey = null;
@@ -1210,8 +1140,9 @@ async function scanDeliveries() {
 
                 if (npcNameFound) {
                     if (!memory.delivery_queue.includes(npcNameFound)) {
-                        // Kiểm tra NPC có trong danh sách bị chặn không
-                        const isBlocked = blockedNPCs.some(b => npcNameFound.includes(b) || b.includes(npcNameFound));
+                        // Kiểm tra NPC có trong danh sách bị chặn của Profile hiện tại không
+                        const currentBlocked = activeProfile === 'A' ? blockedNPCs_A : blockedNPCs_B;
+                        const isBlocked = currentBlocked.some(b => npcNameFound.includes(b) || b.includes(npcNameFound));
                         if (isBlocked) {
                             console.log(`🚫 [BLOCKED]: Bỏ qua NPC bị chặn: ${npcNameFound.toUpperCase()}`);
                         } else {
@@ -1869,56 +1800,6 @@ function sanitizeNPCObject(obj) {
 
 // HYBRID NAVIGATION ENGINE
 let lastPulseTime = Date.now();
-setInterval(() => {
-    const data = getGameData();
-    const syncIndicator = document.getElementById('sync-indicator');
-
-    if (data && data.player) {
-        currentX = data.player.x;
-        currentY = data.player.y;
-
-        // Cập nhật tọa độ lên UI Radar
-        const radarX = document.getElementById('radar_x');
-        const radarY = document.getElementById('radar_y');
-        if (radarX) radarX.innerText = Math.round(currentX);
-        if (radarY) radarY.innerText = Math.round(currentY);
-
-        if (syncIndicator) {
-            syncIndicator.style.background = '#2ed573'; // Xanh
-            syncIndicator.style.boxShadow = '0 0 10px #2ed573';
-        }
-        lastPulseTime = Date.now();
-    }
-    else if (activeKey) {
-        // DEAD RECKONING MODE
-        if (syncIndicator) {
-            syncIndicator.style.background = '#ff4757'; // Đỏ
-            syncIndicator.style.boxShadow = '0 0 10px #ff4757';
-        }
-        const now = Date.now();
-        const duration = now - lastPulseTime;
-        const distance = duration * BASE_SPEED * (memory.speedMultiplier || 1.0);
-        if (activeKey === 'up') currentY -= distance;
-        if (activeKey === 'down') currentY += distance;
-        if (activeKey === 'left') currentX -= distance;
-        if (activeKey === 'right') currentX += distance;
-    } else {
-        if (syncIndicator) {
-            syncIndicator.style.background = '#555'; // Xám
-            syncIndicator.style.boxShadow = 'none';
-        }
-    }
-
-    const inX = document.getElementById('manual_x');
-    const inY = document.getElementById('manual_y');
-    if (inX && inY) {
-        if (document.activeElement !== inX && document.activeElement !== inY) {
-            inX.value = Math.round(currentX);
-            inY.value = Math.round(currentY);
-        }
-    }
-    lastPulseTime = Date.now();
-}, 500);
 
 function stopRecording() {
     isRecording = false;
@@ -1938,8 +1819,9 @@ function injectPremiumUI() {
     ui.id = "sfl-premium-ui";
 
     // Mặc định luôn là thu gọn (isCollapsed = true) nếu chưa lưu lựa chọn
-    chrome.storage.local.get(['sfl_ui_collapsed'], (res) => {
+    chrome.storage.local.get(['sfl_ui_collapsed', 'sfl_active_profile'], (res) => {
         const isCollapsed = res.sfl_ui_collapsed !== false;
+        activeProfile = res.sfl_active_profile || 'A';
         renderInternalUI(ui, isCollapsed);
     });
 
@@ -1949,11 +1831,11 @@ function injectPremiumUI() {
 
 function renderInternalUI(ui, isCollapsed) {
     ui.style.cssText = `
-        position: fixed; bottom: 20px; left: 20px; 
-        width: ${isCollapsed ? '36px' : '140px'};
-        height: ${isCollapsed ? '36px' : 'auto'};
+        position: fixed; top: 50%; right: 20px; transform: translateY(-50%); 
+        width: ${isCollapsed ? '60px' : '140px'};
+        height: ${isCollapsed ? '30px' : 'auto'};
         background: rgba(15, 15, 15, 0.95); backdrop-filter: blur(15px);
-        border: 1px solid rgba(255, 215, 0, 0.5); border-radius: ${isCollapsed ? '50%' : '12px'}; 
+        border: 1px solid rgba(255, 215, 0, 0.5); border-radius: ${isCollapsed ? '15px' : '12px'}; 
         padding: ${isCollapsed ? '0' : '10px'}; z-index: 10000; color: white; 
         font-family: 'Segoe UI', system-ui;
         box-shadow: 0 8px 32px rgba(0,0,0,0.8);
@@ -1963,24 +1845,26 @@ function renderInternalUI(ui, isCollapsed) {
     `;
 
     if (isCollapsed) {
-        const glow = isAutoEnabled ? '0 0 15px #2ed573' : '0 0 10px rgba(255,215,0,0.2)';
+        const glowA = (isAutoEnabled && activeProfile === 'A') ? '0 0 15px #2ed573' : 'none';
+        const glowB = (isAutoEnabled && activeProfile === 'B') ? '0 0 15px #2ed573' : 'none';
         ui.innerHTML = `
-            <div id="quick-toggle-btn" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative;">
-                <span style="font-size: 16px; font-weight: 900; color: ${isAutoEnabled ? '#2ed573' : '#FFD700'}; text-shadow: ${glow}; transition: 0.3s;">S</span>
-                <span id="sync-indicator" style="position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; border-radius:50%; background: ${isAutoEnabled ? '#2ed573' : '#555'};"></span>
-                <div id="ui-expand-btn" style="position: absolute; bottom: 0; right: 0; width: 16px; height: 16px; font-size: 12px; background: rgba(255,215,0,0.2); display: flex; align-items: center; justify-content: center; border-radius: 50% 0 0 0; color: #fff; font-weight: 800;">+</div>
-            </div>
-            <div style="display:none !important;">
-                <button id="auto_btn"></button><div id="bot-status-disp"></div><div id="target_npc_disp"></div>
-                <span id="radar_x">0</span><span id="radar_y">0</span>
-                ${getHiddenTechLayer()}
+            <div id="quick-toggle-container" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative;">
+                <span id="quick-btn-a" style="flex: 1; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; color: ${(isAutoEnabled && activeProfile === 'A') ? '#2ed573' : '#FFD700'}; text-shadow: ${glowA}; transition: 0.3s;">A</span>
+                <span id="quick-btn-b" style="flex: 1; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; color: ${(isAutoEnabled && activeProfile === 'B') ? '#2ed573' : '#FFD700'}; text-shadow: ${glowB}; transition: 0.3s;">B</span>
+                <div id="ui-expand-btn" style="position: absolute; bottom: 0; right: 0; width: 14px; height: 14px; font-size: 10px; background: rgba(255,215,0,0.1); display: flex; align-items: center; justify-content: center; border-radius: 50% 0 0 0; color: #fff; font-weight: 800; cursor: pointer;">+</div>
             </div>
         `;
 
-        ui.querySelector('#quick-toggle-btn').onclick = async (e) => {
+        ui.querySelector('#quick-btn-a').onclick = async (e) => {
             e.stopPropagation();
-            await toggleBotLogic();
-            renderInternalUI(ui, true); // Refresh UI to show new 'S' color
+            await switchAndToggleBot('A');
+            renderInternalUI(ui, true);
+        };
+
+        ui.querySelector('#quick-btn-b').onclick = async (e) => {
+            e.stopPropagation();
+            await switchAndToggleBot('B');
+            renderInternalUI(ui, true);
         };
 
         ui.querySelector('#ui-expand-btn').onclick = (e) => {
@@ -1994,14 +1878,19 @@ function renderInternalUI(ui, isCollapsed) {
             <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                 <div style="display:flex; align-items:center; gap:4px;">
                     <span id="sync-indicator" style="width: 6px; height: 6px; border-radius: 50%; background: #555;"></span>
-                    <span style="font-size: 8px; font-weight: 900; color: #FFD700;">PRO</span>
+                    <span style="font-size: 8px; font-weight: 900; color: #FFD700;">PRO [PROFILE ${activeProfile}]</span>
                 </div>
                 <div id="ui-close-btn" style="cursor: pointer; font-size: 10px; color: #555; padding: 2px 5px; background: rgba(255,255,255,0.05); border-radius: 4px;">_</div>
             </div>
             
-            <button id="auto_btn" style="width:100%; padding:8px 4px; border:none; border-radius:6px; font-weight:800; font-size:10px; background: #222; color:#fff; cursor:pointer; margin-bottom: 6px; border: 1px solid rgba(255,255,255,0.1);">
-                START
-            </button>
+            <div style="display: flex; gap: 4px; width: 100%; margin-bottom: 6px;">
+                <button id="auto_btn_a" style="flex: 1; padding:6px 2px; border:none; border-radius:4px; font-weight:800; font-size:9px; background: ${activeProfile === 'A' && isAutoEnabled ? '#ff4757' : '#222'}; color:#fff; cursor:pointer; border: 1px solid rgba(255,255,255,0.1);">
+                    START A
+                </button>
+                <button id="auto_btn_b" style="flex: 1; padding:6px 2px; border:none; border-radius:4px; font-weight:800; font-size:9px; background: ${activeProfile === 'B' && isAutoEnabled ? '#ff4757' : '#222'}; color:#fff; cursor:pointer; border: 1px solid rgba(255,255,255,0.1);">
+                    START B
+                </button>
+            </div>
 
             <div style="text-align: center; width: 100%;">
                 <div id="bot-status-disp" style="font-size: 8px; color: #888; font-weight: 600; text-transform: uppercase;">READY</div>
@@ -2023,32 +1912,46 @@ function renderInternalUI(ui, isCollapsed) {
     }
 }
 
-async function toggleBotLogic() {
-    if (!isAutoEnabled) {
-        // ĐANG TẮT -> BẬT
+async function switchAndToggleBot(profile) {
+    console.log(`[UI]: Người dùng yêu cầu Profile ${profile}. Trạng thái hiện tại: Enabled=${isAutoEnabled}, Active=${activeProfile}`);
+    
+    if (isAutoEnabled && activeProfile === profile) {
+        // Tắt nếu đang chạy đúng profile đó
+        isAutoEnabled = false;
+        isRunning = false;
+        chrome.storage.local.set({ isRunning: false });
+        currentTask = "IDLE";
+        forceStopAllKeys();
+        saveMemory();
+        console.log(`🛑 [HỆ THỐNG]: ĐÃ DỪNG Bot (Profile ${profile}).`);
+    } else {
+        // Bật hoặc chuyển Profile
         const valid = await checkLicenseRemote();
         if (!valid) {
             renderLicenseModal();
             return;
         }
+        const wasRunning = isRunning;
+        activeProfile = profile;
         isAutoEnabled = true;
         isRunning = true;
-        console.log("🚀 [HỆ THỐNG]: Bật Bot thành công.");
-        chrome.storage.local.set({ isRunning: true });
+        chrome.storage.local.set({ sfl_active_profile: profile, isRunning: true });
+        console.log(`🚀 [HỆ THỐNG]: ĐANG CHẠY Bot với Profile ${profile}.`);
         memory.delivery_queue = [];
         currentTask = "IDLE";
         saveMemory();
-        loop();
-    } else {
-        // ĐANG BẬT -> TẮT
-        isAutoEnabled = false;
-        isRunning = false;
-        console.log("🛑 [HỆ THỐNG]: Dừng Bot.");
-        chrome.storage.local.set({ isRunning: false });
-        currentTask = "IDLE";
-        saveMemory();
+        if (!wasRunning) loop();
+        
+        // Kích hoạt Audio Hack ngay khi người dùng click START
+        if (typeof activateAudioHack === 'function') activateAudioHack();
     }
     updateAutoBtnUI();
+    // Đồng bộ trạng thái ra Dataset để Bridge UI (đèn báo) cập nhật theo
+    document.body.dataset.isRunning = isRunning;
+}
+
+async function toggleBotLogic() {
+    await switchAndToggleBot(activeProfile);
 }
 
 function getHiddenTechLayer() {
@@ -2067,29 +1970,28 @@ function getHiddenTechLayer() {
 
 // Đồng bộ hóa Giao diện Nút Bấm Tự động
 function updateAutoBtnUI() {
-    const autoBtn = document.getElementById('auto_btn');
-    if (autoBtn) {
-        autoBtn.innerText = isAutoEnabled ? '🛑 STOP BOT' : '🚀 DELIVER';
+    const btnA = document.getElementById('auto_btn_a');
+    const btnB = document.getElementById('auto_btn_b');
+    
+    if (btnA && btnB) {
+        btnA.innerText = (isAutoEnabled && activeProfile === 'A') ? '🛑 STOP A' : '🚀 START A';
+        btnB.innerText = (isAutoEnabled && activeProfile === 'B') ? '🛑 STOP B' : '🚀 START B';
 
-        if (isAutoEnabled) {
-            autoBtn.style.background = 'linear-gradient(135deg, #ff4757 0%, #ee5253 100%)';
-            autoBtn.style.boxShadow = '0 0 10px rgba(255, 71, 87, 0.4)';
-        } else {
-            autoBtn.style.background = 'linear-gradient(135deg, #2f3542 0%, #2f3542 100%)';
-            autoBtn.style.boxShadow = 'none';
-        }
+        btnA.style.background = (isAutoEnabled && activeProfile === 'A') ? 'linear-gradient(135deg, #ff4757 0%, #ee5253 100%)' : '#222';
+        btnB.style.background = (isAutoEnabled && activeProfile === 'B') ? 'linear-gradient(135deg, #ff4757 0%, #ee5253 100%)' : '#222';
     }
 
-    // Cập nhật màu sắc cho chế độ UI thu gọn (Chữ S)
-    const quickS = document.querySelector('#quick-toggle-btn span');
-    const syncDot = document.getElementById('sync-indicator');
+    // Cập nhật màu sắc cho chế độ UI thu gọn
+    const quickA = document.getElementById('quick-btn-a');
+    const quickB = document.getElementById('quick-btn-b');
 
-    if (quickS) {
-        quickS.style.color = isAutoEnabled ? '#2ed573' : '#FFD700';
-        quickS.style.textShadow = isAutoEnabled ? '0 0 15px #2ed573' : '0 0 10px rgba(255,215,0,0.2)';
+    if (quickA) {
+        quickA.style.color = (isAutoEnabled && activeProfile === 'A') ? '#2ed573' : '#FFD700';
+        quickA.style.textShadow = (isAutoEnabled && activeProfile === 'A') ? '0 0 15px #2ed573' : 'none';
     }
-    if (syncDot) {
-        syncDot.style.background = isAutoEnabled ? '#2ed573' : '#555';
+    if (quickB) {
+        quickB.style.color = (isAutoEnabled && activeProfile === 'B') ? '#2ed573' : '#FFD700';
+        quickB.style.textShadow = (isAutoEnabled && activeProfile === 'B') ? '0 0 15px #2ed573' : 'none';
     }
 }
 
@@ -2102,12 +2004,13 @@ function initUIEvents() {
         else alert("LỖI: Không tìm thấy Engine. Bạn hãy di chuyển nhân vật một chút hoặc nhấn F5 rồi thử lại.");
     };
 
-    const autoBtn = document.getElementById('auto_btn');
-    if (autoBtn) {
-        updateAutoBtnUI();
-        autoBtn.onclick = async () => {
-            await toggleBotLogic();
-        };
+    const autoBtnA = document.getElementById('auto_btn_a');
+    const autoBtnB = document.getElementById('auto_btn_b');
+    if (autoBtnA) {
+        autoBtnA.onclick = async () => { await switchAndToggleBot('A'); renderInternalUI(document.getElementById('sfl-premium-ui'), false); };
+    }
+    if (autoBtnB) {
+        autoBtnB.onclick = async () => { await switchAndToggleBot('B'); renderInternalUI(document.getElementById('sfl-premium-ui'), false); };
     }
 
     const speedSlide = document.getElementById('speed_slide');

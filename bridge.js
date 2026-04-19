@@ -1,7 +1,98 @@
-// SFL ENGINE BRIDGE (Runs in MAIN World)
-// Optimized for reliable NPC interaction & GPS scanning
 (function () {
-    console.log("💎 SFL BRIDGE 7.0: ABSOLUTE GOD-MODE (EVENT HIJACKER)");
+    console.log("💎 SFL BRIDGE 7.5: CSP-SAFE ANTI-THROTTLING ENGINE");
+
+    // --- [ANTI-THROTTLING CORE]: Khởi động ngay lập tức trong MAIN World ---
+    (function() {
+        console.log("🚀 [SFL BRIDGE]: Đang kích hoạt lá chắn bảo vệ V8 (Auto Balance 60FPS)...");
+
+        // Spoofing Visibility
+        Object.defineProperty(document, 'hidden', { get: () => false, configurable: true });
+        Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
+        Object.defineProperty(document, 'webkitHidden', { get: () => false, configurable: true });
+        Object.defineProperty(document, 'hasFocus', { value: () => true, configurable: true });
+
+        const blockVisibility = (e) => {
+            if(e.isTrusted) {
+                e.stopImmediatePropagation();
+                e.stopPropagation();
+            }
+        };
+
+        const eventsToBlock = ['visibilitychange', 'webkitvisibilitychange', 'pagehide', 'blur', 'focusout', 'mouseleave'];
+        eventsToBlock.forEach(evt => {
+            document.addEventListener(evt, blockVisibility, true);
+            window.addEventListener(evt, blockVisibility, true);
+        });
+
+        // Chặn các thuộc tính gán trực tiếp
+        const nullFn = () => {};
+        window.onblur = nullFn;
+        window.onfocus = nullFn;
+        document.onvisibilitychange = nullFn;
+
+        // Worker Heartbeat (60FPS)
+        const workerCode = "setInterval(() => { self.postMessage('tick'); }, 16);";
+        const blob = new Blob([workerCode], { type: 'application/javascript' });
+        const rafWorker = new Worker(URL.createObjectURL(blob));
+
+        const originalRAF = window.requestAnimationFrame;
+        const pendingCallbacks = new Map();
+        let rafCounter = 0;
+        let lastChromeFrameTime = performance.now();
+
+        rafWorker.onmessage = function() {
+            // --- [GPS & UI SYNC 60FPS] ---
+            try {
+                const sn = window.__SFL_ENGINE__ ? window.__SFL_ENGINE__.latestSn : null;
+                if (sn && sn.game && sn.game.scene && sn.game.scene.scenes[0]) {
+                    const scene = sn.game.scene.scenes[0];
+                    if (scene.player) {
+                        const px = scene.player.x;
+                        const py = scene.player.y;
+                        document.body.dataset.sflPos = `${px},${py}`;
+                        
+                        // Cập nhật đèn báo
+                        const ind = document.getElementById('sync-indicator');
+                        if (ind) {
+                            const isBotRunning = document.body.dataset.isRunning === 'true';
+                            ind.style.background = isBotRunning ? '#2ed573' : '#555';
+                            ind.style.boxShadow = isBotRunning ? '0 0 10px #2ed573' : 'none';
+                        }
+                    }
+                }
+            } catch(e) {}
+
+            if (performance.now() - lastChromeFrameTime < 100) return;
+            if (pendingCallbacks.size === 0) return;
+            
+            const now = performance.now();
+            const callbacksToRun = Array.from(pendingCallbacks.values());
+            pendingCallbacks.clear();
+            
+            for (const cb of callbacksToRun) {
+                cb(now);
+            }
+        };
+
+        window.requestAnimationFrame = function(callback) {
+            const id = ++rafCounter;
+            pendingCallbacks.set(id, callback);
+            originalRAF.call(window, (time) => {
+                lastChromeFrameTime = performance.now();
+                if (pendingCallbacks.has(id)) {
+                    pendingCallbacks.delete(id);
+                    callback(time);
+                }
+            });
+            return id;
+        };
+
+        window.cancelAnimationFrame = function(id) {
+            pendingCallbacks.delete(id);
+        };
+
+        console.log("✅ [SFL BRIDGE]: Lá chắn V8 đã bao phủ toàn bộ Engine!");
+    })();
     
     // Khởi tạo trạng thái toàn cục để dùng chung giữa các lần Inject (Fix Closure Desync)
     if (!window.__SFL_ENGINE__) {
@@ -45,7 +136,15 @@
                     if (scene) {
                         window.__SFL_ENGINE__.latestSn = { game: obj };
                         window.__SFL_ENGINE__.latestScene = scene;
-                        console.log("✅ [PHASER-GOD]: Đã khai quật thành công lõi Phaser Engine từ React Hook!");
+                        
+                        // 🔥 [ANTI-PAUSE]: Khóa chặt bộ máy không cho phép tạm dừng
+                        try {
+                            if (obj.config) obj.config.pauseOnBlur = false;
+                            if (obj.stage) obj.stage.disableVisibilityChange = true;
+                            if (scene.game) scene.game.pauseOnBlur = false;
+                        } catch(e) {}
+                        
+                        console.log("✅ [PHASER-GOD]: Đã khai quật và VÔ HIỆU HÓA tự động dừng game!");
                         return true;
                     }
                 }
@@ -653,5 +752,14 @@
             }
         } catch (e) { }
     }
-    setInterval(scan, 500);
+    // --- [5. UNTHROTTLED SCANNER (WORKER BASED)] ---
+    const workerCode = "setInterval(() => { self.postMessage('scan'); }, 500);";
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    const scannerWorker = new Worker(URL.createObjectURL(blob));
+
+    scannerWorker.onmessage = function() {
+        scan();
+    };
+
+    console.log("🚀 [SFL BRIDGE]: Mắt quét Unthrottled đã khởi động!");
 })();
