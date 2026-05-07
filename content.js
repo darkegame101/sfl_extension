@@ -97,6 +97,10 @@ const KNOWN_NPCS = ["pete", "peggy", "bert", "betty", "guria", "raven", "tinker"
 async function simulateFullClick(el) {
     if (!el) return;
     try {
+        // Đảm bảo phần tử nằm trong tầm nhìn (Tránh lỗi click ra ngoài khi grid dài)
+        el.scrollIntoView({ block: 'center', behavior: 'instant' });
+        await sleep(50);
+
         const rect = el.getBoundingClientRect();
         const centerX = rect.left + rect.width / 2;
         const centerY = rect.top + rect.height / 2;
@@ -118,13 +122,24 @@ async function simulateFullClick(el) {
 
 // Phân loại bảng đang mở: Codex (Danh sách) vs NPC Dialog (Nút bấm)
 function getOpenPanelInfo() {
-    const panels = document.querySelectorAll('div[id^="headlessui-dialog-panel-"], [role="dialog"]');
-    for (const p of panels) {
+    // 1. Tìm các panels chuẩn (Modal)
+    const dialogs = document.querySelectorAll('div[id^="headlessui-dialog-panel-"], [role="dialog"]');
+    for (const p of dialogs) {
         const isVisible = !!(p.offsetWidth || p.offsetHeight || p.getClientRects().length);
         if (!isVisible) continue;
         const text = p.textContent.toLowerCase();
-        if (text.includes("codex") || text.includes("deliveries")) return { type: "CODEX", el: p };
+        if (text.includes("codex") || text.includes("deliveries") || text.includes("flower")) return { type: "CODEX", el: p };
         if (text.includes("deliver") || text.includes("gift") || text.includes("quest")) return { type: "NPC_DIALOG", el: p };
+    }
+
+    // 2. [NEW] Tìm bảng Deliveries kiểu mới (Không phải modal, có màu nền đặc trưng)
+    const customPanels = document.querySelectorAll('div[style*="rgb(228, 166, 114)"]');
+    for (const p of customPanels) {
+        const text = p.textContent.toLowerCase();
+        if (text.includes("deliveries") || text.includes("flower")) {
+            // Đảm bảo đây là bảng chính bằng cách kiểm tra sự hiện diện của ít nhất một grid
+            if (p.querySelector('.grid')) return { type: "CODEX", el: p };
+        }
     }
     return null;
 }
@@ -192,23 +207,28 @@ async function findPath(tx, ty) {
 }
 
 // Utility to find elements by text (PRO VERSION: Includes buttons and divs)
-function findElementByText(selector, text) {
-    const elements = document.querySelectorAll(selector);
+function findElementByText(selector, text, root = document) {
+    const elements = root.querySelectorAll(selector);
     const targetText = text.toLowerCase();
 
     return Array.from(elements).find(el => {
+        // Kiểm tra text
         const content = el.textContent.trim().toLowerCase();
         if (!content.includes(targetText)) return false;
 
+        // Kiểm tra hiển thị (Visibility check)
+        const isVisible = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+        if (!isVisible) return false;
+
         // LOẠI TRỪ UI: Không lấy các phần tử nằm trong Bảng Codex hoặc Dialog (trừ khi chính nó là mục tiêu)
         const isUI = el.closest('.fixed, [role="dialog"], .bg-brown-600, .bg-blue-600');
+        
         // Nếu chúng ta đang tìm modal "Go Home", hoặc các nút Skip/Xác nhận thì ĐƯỢC PHÉP tìm trong UI
-        if (targetText.includes('home') || targetText.includes('go home') || targetText.includes('return') ||
-            targetText.includes('skip') || targetText.includes('confirm') || targetText.includes('yes')) {
-            return true;
-        }
+        const isAllowedUI = targetText.includes('home') || targetText.includes('go home') || targetText.includes('return') ||
+                            targetText.includes('skip') || targetText.includes('confirm') || targetText.includes('yes') ||
+                            targetText.includes('ok');
 
-        if (isUI) return false;
+        if (isUI && !isAllowedUI) return false;
         return true;
     });
 }
@@ -986,14 +1006,19 @@ async function navigateViaGraph(targetX, targetY) {
 
 // Hỗ trợ xử lý các bảng xác nhận (Skip Order)
 async function handleSkipConfirmation() {
-    await sleep(300); // Giảm từ 1000ms -> 300ms
+    await sleep(400); 
     const confirmVerbs = ['confirm', 'yes', 'ok', 'skip'];
+    
+    // Tìm trong Dialog/Modal đang mở (Ưu tiên các overlay phía trên cùng)
+    const dialog = document.querySelector('[role="dialog"], div[id^="headlessui-dialog-panel-"]');
+    const root = dialog || document;
+
     for (const verb of confirmVerbs) {
-        const btn = findElementByText('.material-button, button', verb);
+        const btn = findElementByText('.material-button, button, div.cursor-pointer, span.cursor-pointer', verb, root);
         if (btn) {
-            console.log(`✅ [XÁC NHẬN]: Đã thấy nút [${verb}]. Đang click...`);
+            console.log(`✅ [XÁC NHẬN]: Đã thấy nút [${verb}] trong modal. Đang click...`);
             await simulateFullClick(btn);
-            await sleep(500); // Giảm từ 1500ms -> 500ms
+            await sleep(600); 
             return true;
         }
     }
@@ -1058,48 +1083,113 @@ async function scanDeliveries() {
 
     console.log("🧹 [PHASE 1]: Dọn dẹp đơn cũ màu Cam (Skip)...");
 
-    for (let gIndex = 0; gIndex < grids.length; gIndex++) {
-        let grid = grids[gIndex];
-        let items = Array.from(grid.querySelectorAll(':scope > div'));
+    // Lấy danh sách grids và lọc bỏ các grid không hợp lệ (nếu có)
+    const validGrids = Array.from(grids).filter(g => g.querySelectorAll(':scope > div').length > 0);
+    console.log(`🚀 [SCAN]: Tìm thấy ${validGrids.length} nhóm đơn hàng (Coin/Flower/...).`);
 
-        for (let i = 0; i < items.length; i++) {
+    // Reset danh sách lỗi mỗi khi bắt đầu Phase 1 để quét mới hoàn toàn
+    window.sfl_failed_slots = new Set();
+
+    for (let gIndex = 0; gIndex < validGrids.length; gIndex++) {
+        const currentGrid = validGrids[gIndex];
+        const header = currentGrid.previousElementSibling;
+
+        if (header && header.textContent.toLowerCase().includes('locked')) {
+            console.log(`🔒 [SKIP]: Nhóm ${gIndex + 1} đang bị Khóa (Locked). Bỏ qua.`);
+            continue;
+        }
+
+        let drillCount = 0;
+        const MAX_DRILLS = 20;
+
+        while (drillCount < MAX_DRILLS) {
             if (!isRunning) return;
-            // Scan lại grids để tránh DOM bị stale sau khi skip
-            const currentGrids = document.querySelectorAll('.grid');
-            const currentItem = currentGrids[gIndex]?.querySelectorAll(':scope > div')[i];
-            if (!currentItem) continue;
 
-            const itemHTML = currentItem.innerHTML;
-            const isOrange = itemHTML.includes('rgb(240, 145, 0)') || itemHTML.includes('rgb(240,145,0)');
-            const padlockIcon = currentItem.querySelector('img[src*="lock"]') || currentItem.querySelector('img[src*="padlock"]');
-            const heartIcon = currentItem.querySelector('img.absolute[class*="top-0.5"][class*="right-0.5"]');
+            const currentPanel = getOpenPanelInfo();
+            if (!currentPanel) break;
 
-            if (isOrange && !padlockIcon && !heartIcon) {
-                try { currentItem.click(); } catch (e) { simulateFullClick(currentItem); }
-                await sleep(500);
+            const latestGrids = Array.from(currentPanel.el.querySelectorAll('.grid')).filter(g => g.querySelectorAll(':scope > div').length > 0);
+            const activeGrid = latestGrids[gIndex];
+            if (!activeGrid) break;
 
-                const dr = getOpenPanelInfo()?.el;
-                if (dr && (dr.textContent.includes("Skip in:") || dr.textContent.includes("24 hours"))) {
-                    console.log(`⏳ [SKIP]: Mục ${gIndex + 1} đang chờ. Bỏ qua.`);
+            const items = activeGrid.querySelectorAll(':scope > div');
+            const firstItem = items[0];
+            if (!firstItem) break;
+
+            // KIỂM TRA TRÁI TIM: Nếu ô đầu tiên đã sẵn sàng (có trái tim) -> Dừng khoan hàng này để giữ đơn
+            const isReady = !!firstItem.querySelector('img.absolute[class*="top-0.5"][class*="right-0.5"]');
+            if (isReady) {
+                console.log(`✅ [READY]: Nhóm ${gIndex + 1} đã có đơn sẵn sàng ở ô đầu. Chuyển sang hàng khác.`);
+                break;
+            }
+
+            // Kiểm tra icon Khóa (Chỉ khóa nếu thấy ảnh có tên chứa 'lock' hoặc text 'locked')
+            const isLocked = firstItem.innerHTML.toLowerCase().includes('locked') || 
+                             !!firstItem.querySelector('img[src*="lock"]');
+            
+            if (isLocked) {
+                console.log(`🔒 [SKIP]: Nhóm ${gIndex + 1} đang bị Khóa.`);
+                break;
+            }
+
+            console.log(`🎯 [TARGET]: Click nạp dữ liệu ô đầu tiên Nhóm ${gIndex + 1}...`);
+            const clickTarget = firstItem.querySelector('div.cursor-pointer') || firstItem;
+            await simulateFullClick(clickTarget);
+            
+            // Đợi UI cập nhật bảng chi tiết
+            let skipBtn = null;
+            let detailsArea = null;
+            let isCooldown = false;
+
+            for (let retry = 0; retry < 5; retry++) {
+                await sleep(500); 
+                // SCOPE: Tìm nút Skip ngay trong panel
+                skipBtn = findElementByText('p, span, .material-button, button', 'Skip Order', currentPanel.el);
+                
+                // Nếu thấy nút Skip -> BỎ QUA kiểm tra Cooldown (vì chắc chắn skip được)
+                if (skipBtn) {
+                    isCooldown = false;
                     break;
                 }
 
-                const skipBtn = findElementByText('p, span, .material-button, button', 'Skip Order');
-                if (skipBtn) {
-                    console.log("⏭️ [SKIP]: Đang xóa đơn cũ...");
-                    await simulateFullClick(skipBtn);
-                    await handleSkipConfirmation();
-                    totalItemsSkipped++;
-                    await sleep(1000);
-                    i--; // Quét lại vị trí này do danh sách bị dồn lên
+                // Nếu không thấy nút, mới đi tìm văn bản Cooldown trong vùng chi tiết
+                detailsArea = currentPanel.el.querySelector('.flex-1') || currentPanel.el;
+                const txt = detailsArea.textContent;
+                if (txt.includes("Skip in:") || txt.includes("24 hours")) {
+                    isCooldown = true;
+                    break;
                 }
+                console.log(`⏳ [RETRY]: Đang đợi thông tin đơn hàng Nhóm ${gIndex + 1}...`);
             }
+
+            if (skipBtn) {
+                console.log(`⏭️ [ACTION]: Thực hiện Skip đơn rác tại Nhóm ${gIndex + 1}`);
+                await simulateFullClick(skipBtn);
+                const confirmed = await handleSkipConfirmation();
+                if (confirmed) {
+                    totalItemsSkipped++;
+                    await sleep(1200); 
+                    drillCount++;
+                    continue; 
+                } else {
+                    console.warn(`⚠️ [SKIP-FAILED]: Không thể xác nhận Skip cho Nhóm ${gIndex + 1}. Chuyển hàng.`);
+                    break; // Không thể skip được (có thể do lỗi hoặc NPC đặc biệt) -> Chuyển hàng
+                }
+            } else if (isCooldown) {
+                console.log(`🚫 [STOP]: Nhóm ${gIndex + 1} đang Cooldown. Chuyển hàng.`);
+                break;
+            } else {
+                console.log(`🚫 [STOP]: Nhóm ${gIndex + 1} không có nút Skip (Đã Sẵn sàng). Chuyển hàng.`);
+                break;
+            }
+            drillCount++;
         }
     }
 
     console.log("📋 [PHASE 2]: Gom đơn hàng Trái Tim (Click Thẻ Cha -> Đọc Tên)...");
 
-    const scanGrids = document.querySelectorAll('.grid');
+    const currentPanel = getOpenPanelInfo();
+    const scanGrids = currentPanel ? currentPanel.el.querySelectorAll('.grid') : [];
     let lastReadNPC = "";
 
     for (let gIdx = 0; gIdx < scanGrids.length; gIdx++) {
@@ -1116,7 +1206,7 @@ async function scanDeliveries() {
                 // 2. Click vào thẻ cha (thẻ div có cursor-pointer) để chắc chắn mở bảng Detail
                 const clickTarget = item.querySelector('div.cursor-pointer') || item;
                 console.log("🎯 [TARGET]: Thấy Trái Tim. Đang Click để đọc tên NPC...");
-                try { clickTarget.click(); } catch (e) { simulateFullClick(clickTarget); }
+                await simulateFullClick(clickTarget);
 
                 let npcNameFound = "";
                 // 3. Đợi bảng Detail bên phải cập nhật nội dung
@@ -1914,7 +2004,7 @@ function renderInternalUI(ui, isCollapsed) {
 
 async function switchAndToggleBot(profile) {
     console.log(`[UI]: Người dùng yêu cầu Profile ${profile}. Trạng thái hiện tại: Enabled=${isAutoEnabled}, Active=${activeProfile}`);
-    
+
     if (isAutoEnabled && activeProfile === profile) {
         // Tắt nếu đang chạy đúng profile đó
         isAutoEnabled = false;
@@ -1941,7 +2031,7 @@ async function switchAndToggleBot(profile) {
         currentTask = "IDLE";
         saveMemory();
         if (!wasRunning) loop();
-        
+
         // Kích hoạt Audio Hack ngay khi người dùng click START
         if (typeof activateAudioHack === 'function') activateAudioHack();
     }
@@ -1972,7 +2062,7 @@ function getHiddenTechLayer() {
 function updateAutoBtnUI() {
     const btnA = document.getElementById('auto_btn_a');
     const btnB = document.getElementById('auto_btn_b');
-    
+
     if (btnA && btnB) {
         btnA.innerText = (isAutoEnabled && activeProfile === 'A') ? '🛑 STOP A' : '🚀 START A';
         btnB.innerText = (isAutoEnabled && activeProfile === 'B') ? '🛑 STOP B' : '🚀 START B';
