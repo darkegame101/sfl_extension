@@ -13,7 +13,8 @@
     "service_worker": "background.js"
   },
   "host_permissions": [
-    "https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/*"
+    "https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/*",
+    "https://api.ipify.org/"
   ],
   "action": {
     "default_popup": "popup.html",
