@@ -355,7 +355,7 @@ async function checkLicenseRemote() {
         if (!data) return false;
 
         // 1. Kiểm tra trạng thái
-        if (data.status !== "active") {
+        if (data.status !== "active" || data.active === false) {
             licenseStatus = "INACTIVE";
             return false;
         }

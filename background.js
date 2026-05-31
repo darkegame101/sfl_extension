@@ -28,6 +28,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     last_seen: new Date().toISOString()
                 };
                 
+                // Nếu key chưa có trường active, tự động khởi tạo với true
+                if (data.active === undefined) {
+                    console.log(`📡 [BACKGROUND]: Key chưa có trường active. Tự động khởi tạo: active = true`);
+                    patchData.active = true;
+                    data.active = true;
+                }
+                
                 // Nếu lấy được IP và IP hiện tại khác IP đã lưu (hoặc chưa lưu IP)
                 if (currentIp && data.ip !== currentIp) {
                     console.log(`📡 [BACKGROUND]: Phát hiện đổi IP hoặc IP mới. Cập nhật IP: ${currentIp}`);
