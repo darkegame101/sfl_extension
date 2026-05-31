@@ -1765,6 +1765,25 @@ async function loop() {
 
     if (valid) {
         console.log(`✅ [LICENSE]: Bản quyền hợp lệ (${ownerName}).`);
+        
+        // Theo dõi và cập nhật Farm ID lên Firebase
+        const farmIdInterval = setInterval(() => {
+            const farmId = document.body.dataset.sflFarmId;
+            if (farmId && licenseKey) {
+                clearInterval(farmIdInterval); // Dừng kiểm tra sau khi lấy được ID
+                console.log(`📡 [LICENSE]: Phát hiện Farm ID (${farmId}). Đang cập nhật lên Firebase...`);
+                chrome.runtime.sendMessage({ action: "UPDATE_FARM_ID", key: licenseKey, farmId })
+                .then(response => {
+                    if (response && response.success) {
+                        console.log(`✅ [LICENSE]: Cập nhật Farm ID lên Firebase thành công.`);
+                    } else {
+                        console.error(`❌ [LICENSE]: Cập nhật Farm ID lên Firebase thất bại:`, response?.error);
+                    }
+                })
+                .catch(err => console.error("❌ [LICENSE]: Lỗi kết nối gửi Farm ID:", err));
+            }
+        }, 2000);
+
         if (isRunning) {
             console.log(`🚀 [RESUME]: Tự động khôi phục nhiệm vụ: ${currentTask}`);
             loop();

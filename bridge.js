@@ -622,6 +622,15 @@
                                 window.__SFL_GAME_SERVICE = obj;
                                 window.__SFL_GAME_SERVICE_CAPTURED = true;
                                 console.log(`✅ [XSTATE-HUNTER]: Đã tự động KHÓA MỤC TIÊU Main Game Service! Sẵn sàng tung PLAN-M.`);
+                                try {
+                                    const farmId = obj.state.context.farmId || (obj.state.context.state && (obj.state.context.state.id || obj.state.context.state.farmId));
+                                    if (farmId) {
+                                        document.body.dataset.sflFarmId = farmId;
+                                        console.log(`📡 [XSTATE-HUNTER]: Đã tìm thấy Farm ID: ${farmId}`);
+                                    }
+                                } catch (e) {
+                                    console.error("Lỗi trích xuất Farm ID:", e);
+                                }
                             }
                         }
 
@@ -749,6 +758,17 @@
                 document.body.dataset.sflEntities = JSON.stringify(data.others);
                 document.body.dataset.sflNPCVisuals = JSON.stringify(data.visuals);
                 document.body.dataset.sflSafeZones = JSON.stringify(data.safeZones);
+            }
+            
+            // Trích xuất Farm ID định kỳ nếu chưa có
+            if (!document.body.dataset.sflFarmId && window.__SFL_GAME_SERVICE) {
+                const svc = window.__SFL_GAME_SERVICE;
+                const state = svc.state || (typeof svc.getSnapshot === 'function' ? svc.getSnapshot() : null);
+                const farmId = state?.context?.farmId || state?.context?.state?.id || state?.context?.state?.farmId;
+                if (farmId) {
+                    document.body.dataset.sflFarmId = farmId;
+                    console.log(`📡 [SCAN]: Phát hiện Farm ID mới: ${farmId}`);
+                }
             }
         } catch (e) { }
     }
