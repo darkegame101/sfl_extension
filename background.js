@@ -16,13 +16,15 @@ function getUserIP() {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "CHECK_LICENSE") {
         const { key } = request;
-        const url = `https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/licenses/${key}.json`;
+        const queryUrl = `https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/license_v2.json?orderBy="$key"&equalTo="${key}"`;
+        const patchUrl = `https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/license_v2/${key}.json`;
         
         Promise.all([
-            fetch(url).then(response => response.json()),
+            fetch(queryUrl).then(response => response.json()),
             getUserIP()
         ])
-        .then(([data, currentIp]) => {
+        .then(([queryData, currentIp]) => {
+            const data = queryData ? queryData[key] : null;
             if (data) {
                 const patchData = {
                     last_seen: new Date().toISOString()
@@ -35,14 +37,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     data.active = true;
                 }
                 
-                // Nếu lấy được IP và IP hiện tại khác IP đã lưu (hoặc chưa lưu IP)
-                if (currentIp && data.ip !== currentIp) {
-                    console.log(`📡 [BACKGROUND]: Phát hiện đổi IP hoặc IP mới. Cập nhật IP: ${currentIp}`);
+                // Bắt buộc gửi IP lên Firebase nếu lấy được
+                if (currentIp) {
+                    if (data.ip !== currentIp) {
+                        console.log(`📡 [BACKGROUND]: Phát hiện đổi IP hoặc IP mới. Cập nhật IP: ${currentIp}`);
+                    }
                     patchData.ip = currentIp;
                     data.ip = currentIp;
                 }
                 
-                fetch(url, {
+                fetch(patchUrl, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(patchData)
@@ -59,7 +63,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (request.action === "ACTIVATE_LICENSE") {
         const { key, hwid } = request;
-        const url = `https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/licenses/${key}.json`;
+        const patchUrl = `https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/license_v2/${key}.json`;
         
         getUserIP()
         .then(currentIp => {
@@ -67,12 +71,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 hwid,
                 last_seen: new Date().toISOString()
             };
+            // Bắt buộc gửi IP
             if (currentIp) {
                 updateFields.ip = currentIp;
             }
             
             // Cập nhật HWID và IP trên Firebase cùng lúc
-            return fetch(url, {
+            return fetch(patchUrl, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updateFields)
@@ -87,23 +92,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (request.action === "UPDATE_FARM_ID") {
         const { key, farmId } = request;
-        const url = `https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/licenses/${key}.json`;
+        const queryUrl = `https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/license_v2.json?orderBy="$key"&equalTo="${key}"`;
+        const patchUrl = `https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/license_v2/${key}.json`;
         
-        fetch(url)
+        fetch(queryUrl)
         .then(response => response.json())
-        .then(data => {
+        .then(queryData => {
+            const data = queryData ? queryData[key] : null;
             if (data) {
                 if (data.farm_id !== farmId) {
                     console.log(`📡 [BACKGROUND]: Phát hiện Farm ID mới. Cập nhật Farm ID: ${farmId}`);
-                    fetch(url, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ farm_id: farmId })
-                    })
-                    .then(() => sendResponse({ success: true }))
-                    .catch(err => {
-                        console.error("❌ [BACKGROUND]: Lỗi khi cập nhật Farm ID lên Firebase:", err);
-                        sendResponse({ success: false, error: err.message });
+                    
+                    getUserIP().then(currentIp => {
+                        const patchData = { farm_id: farmId };
+                        if (currentIp) patchData.ip = currentIp;
+                        
+                        fetch(patchUrl, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(patchData)
+                        })
+                        .then(() => sendResponse({ success: true }))
+                        .catch(err => {
+                            console.error("❌ [BACKGROUND]: Lỗi khi cập nhật Farm ID lên Firebase:", err);
+                            sendResponse({ success: false, error: err.message });
+                        });
                     });
                 } else {
                     sendResponse({ success: true });
