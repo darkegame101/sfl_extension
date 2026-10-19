@@ -43,8 +43,9 @@ class MasterRunner:
 
         ai_cfg = self.config.get("ai_vision", {})
         self.ai_enabled = ai_cfg.get("enabled", False)
+        api_key = os.environ.get("AI_VISION_API_KEY") or os.environ.get("BEEKNOEE_API_KEY") or ai_cfg.get("api_key", "")
         self.ai = AIVision(
-            api_key=ai_cfg.get("api_key", ""),
+            api_key=api_key,
             base_url=ai_cfg.get("base_url", "https://api.openai.com/v1"),
             model_id=ai_cfg.get("model_id", "bee-tok/claude-haiku-5-5")
         )

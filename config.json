@@ -5,7 +5,7 @@
   },
   "ai_vision": {
     "enabled": true,
-    "api_key": "sk-bee-0993ed597ecbd01f8d36fe6c6b0142a36e52affc9d9f457b7f41bd1c76cbed29",
+    "api_key": "",
     "base_url": "https://platform.beeknoee.com/v1",
     "model_id": "bee-tok/claude-haiku-5-5"
   },

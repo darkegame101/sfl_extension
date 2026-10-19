@@ -83,9 +83,15 @@ graph TD
 
 ```
 f:\sfland auto/
+├── AGENTS.md                 # Quy chuẩn kỹ thuật & quy trình bắt buộc cho AI Agent
+├── CHANGELOG.md              # Lịch sử thay đổi theo chuẩn Keep a Changelog
+├── docs/
+│   ├── architecture.md       # Tài liệu kiến trúc chuyên sâu, ranh giới module & data flow
+│   ├── testing.md            # Chiến lược kiểm thử, ma trận test & hướng dẫn chạy test
+│   └── configuration.md      # Đặc tả toàn diện schema cấu hình & biến môi trường
 ├── core/
 │   ├── human_mouse.py        # Chuột Win32 SendInput Bézier, Jitter, Fumble & AFK
-│   ├── gpm_api.py            # Kết nối GPM-Login Local API v2 (127.0.0.1:19995)
+│   ├── gpm_api.py            # Kết nối GPM-Login Local API v2 (127.0.0.1:19995) & CDP WebSocket
 │   ├── window_helper.py      # Tìm HWND, đưa cửa sổ lên Foreground, tọa độ Client
 │   └── ai_vision.py          # Thị giác Claude Haiku 5.5 chụp màn hình phân tích JSON
 ├── scheduler/
@@ -99,16 +105,19 @@ f:\sfland auto/
 │   ├── crop_manager.py       # Quản lý thu hoạch & gieo hạt (Shuffle, Nhịp thở Sync, Miss-click)
 │   ├── mushroom_hunter.py    # Tự động nhặt nấm hoang dã từ tọa độ AI
 │   └── session_task_orchestrator.py # Điều phối đa nhiệm & Xác suất bỏ sót theo thị giác con người
-├── _archive_extension/       # Lưu trữ mã nguồn Chrome Extension cũ
-├── config.json               # Cấu hình hệ thống (API Key, Crop, Scheduler)
-├── personas.json             # Lưu trữ ADN bản thể 33 profile
-├── daily_scenarios.json      # Lưu trữ kịch bản đời sống hôm nay của các profile
-├── farm_memory.json          # Lưu trữ trạng thái nông trại & chu kỳ cây trồng
-├── run.py                    # BỘ ĐIỀU PHỐI TRUNG TÂM (MASTER RUNNER)
-├── sfl_master_encyclopedia.md# Đại điển tri thức toàn diện game Sunflower Land
-├── sfl_farm_ui_analysis.md   # Phân tích giao diện thực tế và tọa độ
-├── sfl_gameplay_analysis.md  # Phân tích gameplay và bẫy Anti-Cheat
-└── sfl_empirical_foundations.md # Căn cứ thực nghiệm & Phương pháp luận HCI (Fitts, MacKenzie, KLM)
+├── tests/                    # Bộ kiểm thử tự động (Unit & Live Tests)
+│   ├── test_gpm_api.py       # Kiểm thử GpmAPI (Mock HTTP & Live local API)
+│   ├── test_ai_validation.py # Kiểm thử schema & bounds checking AI Vision
+│   ├── test_behavioral_engine.py # Kiểm thử Persona & kịch bản sinh hoạt
+│   ├── test_scenario_engine_evaluation.py # Đánh giá định lượng 6 Archetypes & Fatigue
+│   └── test_fitts_law.py     # Kiểm chứng vận động học chuột theo Fitts' Law
+├── run.py                    # BỘ ĐIỀU PHỐI TRUNG TÂM (MASTER RUNNER CLI)
+├── gpm_ui.py                 # GIAO DIỆN WEB ĐIỀU KHIỂN & TEST CENTER GPM (Port 18888)
+├── requirements.txt          # Khai báo phụ thuộc môi trường chạy thực tế
+├── requirements-dev.txt      # Khai báo phụ thuộc môi trường phát triển & kiểm thử
+├── config.json               # Cấu hình hệ thống (GPM, Farming, Scheduler)
+├── .env.example              # Mẫu khai báo biến môi trường và API key an toàn
+└── sfl_*.md                  # Các tài liệu phân tích thực nghiệm & gameplay
 ```
 
 ---
@@ -123,21 +132,26 @@ f:\sfland auto/
 ### 2. Cài đặt Thư viện Python
 Mở Terminal / PowerShell tại thư mục dự án và chạy:
 ```powershell
-pip install requests mss pillow pywin32
+pip install -r requirements.txt
 ```
-*(Nếu muốn dùng AI Vision Claude Haiku, cài thêm: `pip install openai`)*
+*(Nếu tham gia phát triển và chạy test coverage, cài thêm: `pip install -r requirements-dev.txt`)*
 
-### 3. Cấu hình (`config.json`)
-Chỉnh sửa tệp [`config.json`](file:///f:/sfland%20auto/config.json) theo nhu cầu:
+### 3. Cấu hình & Biến môi trường
+1. Sao chép file mẫu: `copy .env.example .env`
+2. Điền API Key của bạn vào `.env` (không commit file `.env` lên Git):
+   ```env
+   AI_VISION_API_KEY=your_api_key_here
+   ```
+3. Xem chi tiết schema tại [`docs/configuration.md`](docs/configuration.md) hoặc tùy chỉnh tệp [`config.json`](config.json):
 ```json
 {
   "gpm_api": {
     "base_url": "http://127.0.0.1:19995",
-    "group_filter": null
+    "group_filter": "SFL-ACTIVE"
   },
   "ai_vision": {
-    "enabled": true,
-    "api_key": "sk-bee-...",
+    "enabled": false,
+    "api_key": "",
     "base_url": "https://platform.beeknoee.com/v1",
     "model_id": "bee-tok/claude-haiku-5-5"
   },
@@ -155,13 +169,24 @@ Chỉnh sửa tệp [`config.json`](file:///f:/sfland%20auto/config.json) theo n
 }
 ```
 
-### 4. Khởi chạy Bot
-1. Mở ứng dụng **GPM-Login** trên máy tính.
-2. Khởi chạy Bot:
+### 4. Khởi chạy & Kiểm thử
+
+#### A. Chạy Master Runner (CLI):
 ```powershell
 python run.py
 ```
-3. Xem bảng điều khiển thời gian thực hiển thị danh tính sống động, câu chuyện đời thực và nhịp sinh học của các profile!
+
+#### B. Mở Web Dashboard Điều khiển & Test Center GPM:
+```powershell
+python gpm_ui.py
+```
+*Tự động mở trình duyệt tại `http://127.0.0.1:18888` để xem 33 profile, start/stop bằng 1 cú click, kiểm tra CDP WebSocket, và xem live screenshot.*
+
+#### C. Chạy Toàn Bộ Kiểm Thử Tự Động (Test Suite):
+```powershell
+python -m unittest discover tests -v
+```
+*Xem hướng dẫn kiểm thử chi tiết tại [`docs/testing.md`](docs/testing.md).*
 
 ---
 

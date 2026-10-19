@@ -12,12 +12,20 @@ node_modules/
 audit_trail.jsonl
 __pycache__/
 .DS_Store
-Thumbs.db
+# Environment & Secrets (Không commit API keys lên Git)
+.env
+.env.*
+*.env
+!.env.example
 
-# Documentation/Artifacts (Optional to ignore if not needed in repo)
+# Documentation/Artifacts whitelist
 *.md
 !README.md
+!AGENTS.md
+!CHANGELOG.md
 !sfl_*.md
+!docs/**
+!docs/*.md
 walkthrough.md
 task.md
 implementation_plan*.md
