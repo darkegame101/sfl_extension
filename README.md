@@ -93,24 +93,29 @@ f:\sfland auto/
 │   ├── human_mouse.py        # Chuột Win32 SendInput Bézier, Jitter, Fumble & AFK
 │   ├── gpm_api.py            # Kết nối GPM-Login Local API v2 (127.0.0.1:19995) & CDP WebSocket
 │   ├── window_helper.py      # Tìm HWND, đưa cửa sổ lên Foreground, tọa độ Client
-│   └── ai_vision.py          # Thị giác Claude Haiku 5.5 chụp màn hình phân tích JSON
+│   ├── ai_vision.py          # Thị giác Claude Haiku 5.5 chụp màn hình phân tích JSON
+│   └── local_vision_engine.py # Thị giác cục bộ OpenCV/heuristic fallback
 ├── scheduler/
 │   ├── persona_manager.py    # Quản lý 33 Danh tính Người thật (Tên, Tuổi, Nghề, Tính khí)
 │   ├── scenario_engine.py    # Kịch bản Bối cảnh Đời sống & Cụm Giờ Sinh Hoạt (Time-Slots)
 │   ├── crop_selector.py      # Bộ lựa chọn hạt giống thích ứng sinh học theo quỹ thời gian
-│   ├── farm_memory.py        # Bộ nhớ chu kỳ cây, tính độ trễ quên và kiểm duyệt 3 lớp
+│   ├── farm_memory.py        # Bộ nhớ chu kỳ cây, tính độ trễ quên và atomic locked persistence
 │   └── queue_manager.py      # Lịch trình ngủ đêm sinh học, Coffee breaks & Báo cáo
 ├── tasks/
 │   ├── captcha_guard.py      # Lá chắn Captcha phản xạ 0.01s & hú còi báo động
 │   ├── crop_manager.py       # Quản lý thu hoạch & gieo hạt (Shuffle, Nhịp thở Sync, Miss-click)
 │   ├── mushroom_hunter.py    # Tự động nhặt nấm hoang dã từ tọa độ AI
 │   └── session_task_orchestrator.py # Điều phối đa nhiệm & Xác suất bỏ sót theo thị giác con người
+├── scripts/
+│   └── scan_secrets.py       # Công cụ quét secret & credential tự động (Rule F)
 ├── tests/                    # Bộ kiểm thử tự động (Unit & Live Tests)
 │   ├── test_gpm_api.py       # Kiểm thử GpmAPI (Mock HTTP & Live local API)
 │   ├── test_ai_validation.py # Kiểm thử schema & bounds checking AI Vision
 │   ├── test_behavioral_engine.py # Kiểm thử Persona & kịch bản sinh hoạt
 │   ├── test_scenario_engine_evaluation.py # Đánh giá định lượng 6 Archetypes & Fatigue
-│   └── test_fitts_law.py     # Kiểm chứng vận động học chuột theo Fitts' Law
+│   ├── test_fitts_law.py     # Kiểm chứng vận động học chuột theo Fitts' Law
+│   ├── test_audit_and_verification.py # Kiểm thử hậu kiểm closed-loop, perception fail-safe & decoupled status
+│   └── test_farm_memory_concurrency.py # Kiểm định đa tiến trình, PID stale-lock & secret hygiene
 ├── run.py                    # BỘ ĐIỀU PHỐI TRUNG TÂM (MASTER RUNNER CLI)
 ├── gpm_ui.py                 # GIAO DIỆN WEB ĐIỀU KHIỂN & TEST CENTER GPM (Port 18888)
 ├── requirements.txt          # Khai báo phụ thuộc môi trường chạy thực tế
@@ -187,6 +192,12 @@ python gpm_ui.py
 python -m unittest discover tests -v
 ```
 *Xem hướng dẫn kiểm thử chi tiết tại [`docs/testing.md`](docs/testing.md).*
+
+#### D. Quét Bảo Mật Secret & Credential (Rule F):
+```powershell
+python scripts/scan_secrets.py
+```
+*Kiểm tra working tree để đảm bảo không có API key hay credential nào bị lộ.*
 
 ---
 

@@ -83,9 +83,15 @@ class TestAIValidationAndGuard(unittest.TestCase):
         self.assertIn("enabled", ai_cfg)
         self.assertIn("beeknoee.com", ai_cfg.get("base_url", ""))
         self.assertEqual(ai_cfg.get("model_id"), "bee-tok/claude-haiku-5-5")
-        # Chấp nhận key qua config.json hoặc biến môi trường AI_VISION_API_KEY mà không bắt buộc commit secret vào git
-        api_key = os.environ.get("AI_VISION_API_KEY") or ai_cfg.get("api_key", "")
-        self.assertIsInstance(api_key, str)
+        
+        # Rule F: config.json không được chứa secret key (phải rỗng và không có prefix nhạy cảm)
+        committed_key = ai_cfg.get("api_key", "")
+        self.assertEqual(committed_key, "", "config.json không được commit secret key trực tiếp")
+        self.assertFalse(committed_key.startswith("sk-"), "config.json không được chứa key sk-*")
+        
+        # Key thực tế được nạp từ biến môi trường (AI_VISION_API_KEY hoặc BEEKNOEE_API_KEY)
+        env_key = os.environ.get("AI_VISION_API_KEY") or os.environ.get("BEEKNOEE_API_KEY") or committed_key
+        self.assertIsInstance(env_key, str)
 
 
 if __name__ == "__main__":

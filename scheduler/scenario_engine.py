@@ -182,6 +182,16 @@ class ScenarioEngine:
                     print(f"[ScenarioEngine Warning] Lỗi đọc {path}: {e}")
         return {}
 
+    @staticmethod
+    def _is_pid_alive(pid: int) -> bool:
+        if pid <= 0:
+            return False
+        try:
+            import psutil
+            return psutil.pid_exists(pid)
+        except Exception:
+            return True
+
     @contextlib.contextmanager
     def _process_lock(self, timeout: float = 4.0):
         """Khóa tiến trình chéo (Inter-process File Lock) dùng cờ O_CREAT | O_EXCL của hệ điều hành."""
@@ -191,13 +201,31 @@ class ScenarioEngine:
         while time.time() - start < timeout:
             try:
                 fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+                try:
+                    os.write(fd, f"{os.getpid()}\n".encode("utf-8"))
+                except Exception:
+                    pass
                 break
             except FileExistsError:
                 try:
-                    if os.path.exists(lock_file) and (time.time() - os.path.getmtime(lock_file) > 10.0):
-                        os.remove(lock_file)
+                    if os.path.exists(lock_file):
+                        with open(lock_file, "r", encoding="utf-8") as lf:
+                            raw_pid = lf.read().strip()
+                        if raw_pid.isdigit():
+                            owning_pid = int(raw_pid)
+                            if not self._is_pid_alive(owning_pid):
+                                try:
+                                    os.remove(lock_file)
+                                except Exception:
+                                    pass
+                        elif (time.time() - os.path.getmtime(lock_file)) > 30.0:
+                            try:
+                                os.remove(lock_file)
+                            except Exception:
+                                pass
                 except Exception:
                     pass
+                time.sleep(0.04)
         if fd is None:
             raise TimeoutError(f"[ScenarioEngine Lock] Không thể chiếm quyền ghi file {lock_file} sau {timeout}s (Bị khóa bởi tiến trình khác)!")
 
@@ -216,13 +244,16 @@ class ScenarioEngine:
                     pass
 
     def _save(self):
-        """Ghi file an toàn nguyên tử (Atomic Write) kết hợp Process Lock tránh xung đột đa tiến trình."""
+        """Ghi file an toàn nguyên tử (Atomic Write) kết hợp Process Lock và merge dữ liệu."""
         tmp_file = f"{self.storage_file}.tmp"
         bak_file = f"{self.storage_file}.bak"
         with self._process_lock():
+            latest = self._load()
+            for k, v in self.scenarios.items():
+                latest[k] = v
             try:
                 with open(tmp_file, "w", encoding="utf-8") as f:
-                    json.dump(self.scenarios, f, ensure_ascii=False, indent=2)
+                    json.dump(latest, f, ensure_ascii=False, indent=2)
                     f.flush()
                     os.fsync(f.fileno())
 
@@ -235,6 +266,7 @@ class ScenarioEngine:
                         pass
 
                 os.replace(tmp_file, self.storage_file)
+                self.scenarios = latest
             except Exception as e:
                 print(f"[ScenarioEngine Error] Không thể lưu scenarios an toàn: {e}")
                 if os.path.exists(tmp_file):
@@ -242,6 +274,7 @@ class ScenarioEngine:
                         os.remove(tmp_file)
                     except Exception:
                         pass
+                raise
 
     def get_today_str(self) -> str:
         return datetime.date.today().isoformat()

@@ -33,21 +33,63 @@ class FarmMemory:
         self.scenario_engine = ScenarioEngine(scenarios_file, ai_client=ai_client)
         self.data = self._load()
 
+    @staticmethod
+    def _is_pid_alive(pid: int) -> bool:
+        """Kiểm tra Process ID có đang thực sự chạy trên hệ thống không."""
+        if pid <= 0:
+            return False
+        try:
+            import psutil
+            return psutil.pid_exists(pid)
+        except Exception:
+            try:
+                import ctypes
+                kernel32 = ctypes.windll.kernel32
+                h = kernel32.OpenProcess(0x1000, False, pid)
+                if h:
+                    kernel32.CloseHandle(h)
+                    return True
+                return False
+            except Exception:
+                return True
+
     @contextlib.contextmanager
     def _process_lock(self, timeout: float = 4.0):
-        """Khóa tiến trình chéo (Inter-process File Lock) dùng cờ O_CREAT | O_EXCL của hệ điều hành."""
+        """
+        Khóa tiến trình chéo (Inter-process File Lock) dùng cờ O_CREAT | O_EXCL của hệ điều hành.
+        Ghi PID của tiến trình sở hữu để nhận diện chính xác stale lock (chỉ thu hồi khi tiến trình đã chết).
+        """
         lock_file = f"{self.memory_file}.lock"
         start = time.time()
         fd = None
         while time.time() - start < timeout:
             try:
                 fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+                try:
+                    os.write(fd, f"{os.getpid()}\n".encode("utf-8"))
+                except Exception:
+                    pass
                 break
             except FileExistsError:
-                # Nếu lock file quá cũ (> 10s), có thể tiến trình trước bị crash -> tự thu hồi
+                # Kiểm tra xem tiến trình giữ lock có còn sống không
                 try:
-                    if os.path.exists(lock_file) and (time.time() - os.path.getmtime(lock_file) > 10.0):
-                        os.remove(lock_file)
+                    if os.path.exists(lock_file):
+                        with open(lock_file, "r", encoding="utf-8") as lf:
+                            raw_pid = lf.read().strip()
+                        if raw_pid.isdigit():
+                            owning_pid = int(raw_pid)
+                            if not self._is_pid_alive(owning_pid):
+                                # Tiến trình sở hữu đã chết -> stale lock hợp lệ để dọn dẹp
+                                try:
+                                    os.remove(lock_file)
+                                except Exception:
+                                    pass
+                        elif (time.time() - os.path.getmtime(lock_file)) > 30.0:
+                            # File hỏng hoặc không có PID và đã quá 30s
+                            try:
+                                os.remove(lock_file)
+                            except Exception:
+                                pass
                 except Exception:
                     pass
                 time.sleep(0.04)
@@ -79,14 +121,23 @@ class FarmMemory:
                     print(f"[FarmMemory Warning] Lỗi đọc {path}: {e}")
         return {}
 
-    def _save(self):
-        """Ghi file an toàn nguyên tử (Atomic Write) kết hợp Process Lock tránh xung đột đa tiến trình."""
+    def _mutate(self, mutator_fn):
+        """
+        Thực hiện sửa đổi dữ liệu an toàn dưới sự bảo vệ của Process Lock:
+        1. Chiếm Process Lock.
+        2. Tải bản mới nhất từ đĩa (ngăn chặn hoàn toàn lost-update giữa nhiều instance/tiến trình).
+        3. Áp dụng mutator_fn(latest_data).
+        4. Ghi file nguyên tử (Atomic write .tmp -> .bak -> replace).
+        5. Cập nhật self.data bằng dữ liệu mới nhất.
+        """
         tmp_file = f"{self.memory_file}.tmp"
         bak_file = f"{self.memory_file}.bak"
         with self._process_lock():
+            latest_data = self._load()
+            mutator_fn(latest_data)
             try:
                 with open(tmp_file, "w", encoding="utf-8") as f:
-                    json.dump(self.data, f, ensure_ascii=False, indent=2)
+                    json.dump(latest_data, f, ensure_ascii=False, indent=2)
                     f.flush()
                     os.fsync(f.fileno())
 
@@ -99,6 +150,7 @@ class FarmMemory:
                         pass
 
                 os.replace(tmp_file, self.memory_file)
+                self.data = latest_data
             except Exception as e:
                 print(f"[FarmMemory Error] Không thể lưu data an toàn: {e}")
                 if os.path.exists(tmp_file):
@@ -106,6 +158,14 @@ class FarmMemory:
                         os.remove(tmp_file)
                     except Exception:
                         pass
+                raise
+
+    def _save(self):
+        """Ghi file an toàn nguyên tử (Atomic Write) kết hợp merge tránh đè mất dữ liệu profile khác."""
+        def _merge(latest_data):
+            for k, v in self.data.items():
+                latest_data[k] = v
+        self._mutate(_merge)
 
     def _check_and_reset_daily(self, profile_id: str):
         """Reset số phiên nếu đã bước sang ngày mới (sau 00:00)."""
@@ -124,7 +184,6 @@ class FarmMemory:
         """
         now = time.time()
         ready_time = now + grow_seconds
-        self._check_and_reset_daily(profile_id)
 
         # Lấy ADN và danh tính con người của profile
         persona = self.persona_mgr.get_or_create_persona(profile_id, profile_name)
@@ -136,20 +195,29 @@ class FarmMemory:
         forgetting_delay = base_forgetting * forgetting_scale
         next_run = ready_time + forgetting_delay
 
-        prof_data = self.data[profile_id]
-        prof_data["crop_name"] = crop_name
-        prof_data["planted_at"] = now
-        prof_data["ready_at"] = ready_time
-        prof_data["next_run_at"] = next_run
-        prof_data["last_session_at"] = now
-        prof_data["session_count_today"] = prof_data.get("session_count_today", 0) + 1
+        today_str = datetime.date.today().isoformat()
+        final_count = 1
 
-        self._save()
+        def _update(data):
+            nonlocal final_count
+            prof_data = data.setdefault(profile_id, {})
+            if prof_data.get("last_date") != today_str:
+                prof_data["last_date"] = today_str
+                prof_data["session_count_today"] = 0
+            prof_data["crop_name"] = crop_name
+            prof_data["planted_at"] = now
+            prof_data["ready_at"] = ready_time
+            prof_data["next_run_at"] = next_run
+            prof_data["last_session_at"] = now
+            prof_data["session_count_today"] = prof_data.get("session_count_today", 0) + 1
+            final_count = prof_data["session_count_today"]
+
+        self._mutate(_update)
+
         cap = scenario.get("daily_session_cap", 6)
-        count = prof_data["session_count_today"]
         print(f"[FarmMemory] {scenario['real_name']} ({scenario['job']}): Vừa gieo '{crop_name}' (Chín lúc {time.strftime('%H:%M:%S', time.localtime(ready_time))})")
         print(f" -> Tâm trạng: [{scenario['today_mood']}] | Trễ quên: +{forgetting_delay/60:.1f} phút -> Mở lại lúc: {time.strftime('%H:%M:%S', time.localtime(next_run))}")
-        print(f" -> Tiến độ hôm nay: {count}/{cap} phiên")
+        print(f" -> Tiến độ hôm nay: {final_count}/{cap} phiên")
 
     def is_session_capped_today(self, profile_id: str, profile_name: str = "") -> bool:
         """Kiểm tra profile này đã đạt giới hạn phiên theo kịch bản hôm nay chưa."""

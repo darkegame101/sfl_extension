@@ -145,6 +145,15 @@ sequenceDiagram
 2. **Win32 `SendInput` vs. CDP Synthetic Mouse**:
    - *Decision*: Use Win32 OS-level hardware input as primary mouse mechanism.
    - *Rationale*: Win32 events trigger native OS input streams marked with `isTrusted: true`, preventing browser-level fingerprinting of synthetic CDP `Input.dispatchMouseEvent`.
-3. **Atomic State Storage**:
-   - *Decision*: Use atomic JSON file persistence (`write to .tmp -> os.replace` with backup `.bak`) instead of an external SQL/NoSQL database.
-   - *Rationale*: Zero external service dependencies; fully self-contained portable directory.
+3. **Atomic State Storage & PID-Aware Concurrency**:
+   - *Decision*: Use atomic JSON file persistence (`write to .tmp -> os.replace` with backup `.bak`) coupled with PID-aware process locks (`.lock` storing owning process ID).
+   - *Rationale*: Zero external database dependencies; dead process locks are automatically reclaimed by querying OS process tables (`_is_pid_alive`), while active process locks are strictly respected to prevent race conditions and lost updates across concurrent workers.
+4. **Closed-Loop Verification & Decoupled Audit Logging**:
+   - *Decision*: Decouple `execution_status` (e.g. `COMPLETED`, `COMPLETED_UNVERIFIED`, `ABORTED_PERCEPTION_FAILURE`) from `verification_status` (`VERIFIED_SUCCESS`, `VERIFIED_PARTIAL`, `VERIFIED_FAILED`, `UNVERIFIED`).
+   - *Rationale*: Prevents false-positive success claims when post-condition visual evidence is missing or ambiguous. Success requires positive evidence of crop growth (`growing_count > 0 and empty_count == 0`).
+5. **Perception Fail-Safe**:
+   - *Decision*: Halt immediately if `capture_screenshot()` returns `None` or vision processing encounters an unrecoverable failure.
+   - *Rationale*: Operating without current visual perception turns automation into blind clicking, leading to anti-detect detection and account suspension risks.
+6. **Isolated Cleanup Handling**:
+   - *Decision*: Wrap browser shutdown (`GpmAPI.stop_profile`) in dedicated try/except blocks inside `finally`.
+   - *Rationale*: Preserves original exception traces and prevents cleanup failures from masking root operational crashes.

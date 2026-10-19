@@ -15,7 +15,8 @@ The test suite is built on Python's standard `unittest` framework and located in
 | **`test_behavioral_engine.py`** | Persona generation, persistence immutability, time-slot clustering, and SmartCropSelector logic. | Isolated temporary JSON files (`tempfile.TemporaryDirectory`). |
 | **`test_scenario_engine_evaluation.py`** | Archetype diversification (all 6 archetypes), WFH vs. office occupation weights, fatigue accumulation, and episodic recall. | 100% deterministic, synthetic scenario seeds. |
 | **`test_fitts_law.py`** | Human mouse kinematics, Fitts' law travel duration, overshoot deceleration, and Bézier curvature bounds. | Pure numerical computation without OS window dependency. |
-| **`test_audit_and_verification.py`** | Reproducibility seeds, structured logging integrity, and configuration sanity. | Offline JSON validation. |
+| **`test_audit_and_verification.py`** | Closed-loop pre/post verification logic, decoupled `execution_status` vs `verification_status`, perception fail-safe, and cleanup error retention. | Offline JSON validation and mock fixtures. |
+| **`test_farm_memory_concurrency.py`** | Concurrent multi-instance writes without lost updates, dead PID stale-lock recovery, active PID lock respect, atomic tmp cleanup, and working tree secret hygiene. | Multi-instance tempfile testing with process lock validation. |
 
 ---
 
@@ -41,6 +42,15 @@ python -m unittest tests/test_scenario_engine_evaluation.py -v
 
 # Human mouse kinematics & Fitts' law
 python -m unittest tests/test_fitts_law.py -v
+
+# Audit trail, closed-loop verification & perception fail-safe
+python -m unittest tests/test_audit_and_verification.py -v
+
+# Concurrency, PID-aware lock & secret hygiene
+python -m unittest tests/test_farm_memory_concurrency.py -v
+
+# Secret scanner execution (Rule F)
+python scripts/scan_secrets.py
 ```
 
 ### Bytecode Compilation & Syntax Check

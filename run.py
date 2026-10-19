@@ -10,8 +10,13 @@ import os
 import random
 import sys
 import time
+from typing import Optional, Dict, List, Any
 
-sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 from core.gpm_api import GpmAPI
 from core.human_mouse import HumanMouse
@@ -102,7 +107,18 @@ class MasterRunner:
                 return json.load(f)
         return {}
 
-    def _record_audit_log(self, profile_id: str, profile_name: str, session_plan: dict, status: str, verification: dict, eff_params: dict):
+    def _record_audit_log(
+        self,
+        profile_id: str,
+        profile_name: str,
+        session_plan: dict,
+        status: str,
+        verification: dict,
+        eff_params: dict,
+        execution_status: Optional[str] = None,
+        verification_status: Optional[str] = None,
+        cleanup_error: Optional[str] = None
+    ):
         """Ghi nhận nhật ký kiểm toán phiên (Structured Audit Trail) phục vụ đánh giá định lượng."""
         if not getattr(self, "audit_logging", True):
             return
@@ -113,12 +129,15 @@ class MasterRunner:
             "profile_name": profile_name,
             "session_type": session_plan.get("session_type", "UNKNOWN"),
             "status": status,
+            "execution_status": execution_status or status,
+            "verification_status": verification_status or verification.get("status", "UNVERIFIED"),
+            "cleanup_error": cleanup_error,
             "tasks_planned": session_plan.get("tasks_to_execute", []),
             "verification": verification,
             "intra_day_metrics": {
-                "vigilance": eff_params.get("vigilance_level"),
-                "accumulated_fatigue": eff_params.get("accumulated_fatigue"),
-                "effective_fumble_rate": eff_params.get("effective_fumble_rate")
+                "vigilance": eff_params.get("vigilance_level") if isinstance(eff_params, dict) else None,
+                "accumulated_fatigue": eff_params.get("accumulated_fatigue") if isinstance(eff_params, dict) else None,
+                "effective_fumble_rate": eff_params.get("effective_fumble_rate") if isinstance(eff_params, dict) else None
             }
         }
         try:
@@ -222,51 +241,71 @@ class MasterRunner:
 
             # 5. Phân tích AI Vision (nếu bật cấu hình)
             analysis = {}
-            if self.ai_enabled and self.ai.api_key:
+            if self.ai_enabled:
+                if not self.ai.api_key:
+                    print("[Runner Alert] Cảnh báo thị giác: ai_vision được bật nhưng thiếu API key. Dừng tác vụ để tránh click mù.")
+                    session_status = "ABORTED_PERCEPTION_FAILURE"
+                    verification["status"] = "VERIFICATION_SKIPPED_NO_API_KEY"
+                    verification["details"].append("Perception failed: AI vision enabled but API key is missing")
+                    return
+
                 print("[Runner] Đang chụp màn hình gửi Claude Haiku 5.5 phân tích...")
                 screenshot = self.ai.capture_screenshot()
-                if screenshot:
-                    analysis = self.ai.analyze_screen(screenshot)
-                    print(f"[Runner] AI phản hồi trong {analysis.get('latency')}s: {analysis}")
+                if not screenshot:
+                    print("[Runner Alert] Lỗi thị giác: Không thể chụp màn hình hiện tại! Dừng tác vụ để tránh click mù.")
+                    session_status = "ABORTED_PERCEPTION_FAILURE"
+                    verification["status"] = "VERIFICATION_SKIPPED_NO_SCREENSHOT"
+                    verification["details"].append("Perception failed: capture_screenshot returned None before starting actions")
+                    return
 
-                    # Kiểm tra Captcha có thẩm định lại sau giải
-                    if CaptchaGuard.check_and_guard(analysis):
-                        session_status = "CAPTCHA_PAUSED"
-                        self.memory.scenario_engine.register_event_feedback(pid, "CAPTCHA_ALERT", {"analysis": analysis})
-                        input("Nhấn Enter sau khi bạn đã giải Captcha xong trên trình duyệt...")
-                        if not CaptchaGuard.recheck_screen_after_solve(self.ai):
-                            session_status = "CAPTCHA_UNRESOLVED"
-                            print("[Runner Guard] Captcha vẫn chưa được giải an toàn. Hủy phiên để bảo vệ tài khoản!")
-                            self._record_audit_log(pid, pname, session_plan, session_status, verification, eff_params)
-                            return
-                        self.memory.scenario_engine.register_event_feedback(pid, "CAPTCHA_RESOLVED")
+                analysis = self.ai.analyze_screen(screenshot)
+                if not isinstance(analysis, dict) or not analysis.get("success"):
+                    err_reason = analysis.get("error", "No response") if isinstance(analysis, dict) else "Analysis failed"
+                    print(f"[Runner Alert] Lỗi phân tích thị giác AI: {err_reason}. Dừng tác vụ để bảo vệ an toàn Captcha!")
+                    session_status = "ABORTED_PERCEPTION_FAILURE"
+                    verification["status"] = "VERIFICATION_SKIPPED_PERCEPTION_ERROR"
+                    verification["details"].append(f"AI Vision analysis failed: {err_reason}")
+                    return
 
-                    # Kiểm tra Popup che màn hình
-                    if analysis.get("has_blocking_popup") and analysis.get("popup_close_button"):
-                        btn_x, btn_y = analysis["popup_close_button"]
-                        print(f"[Runner] Phát hiện Popup che, đang bấm tắt tại ({btn_x}, {btn_y})...")
-                        HumanMouse.click(btn_x, btn_y, random_offset=persona["jitter_px"])
-                        HumanMouse.human_sleep(1.0, 1.8)
+                print(f"[Runner] AI phản hồi trong {analysis.get('latency')}s: {analysis}")
 
-                    # Kiểm tra vòng xoay đồng bộ Syncing...
-                    if analysis.get("is_syncing"):
-                        print("[Runner Perception] Phát hiện game đang đồng bộ dữ liệu (Syncing...), chờ 2.5s...")
-                        time.sleep(2.5)
+                # Kiểm tra Captcha có thẩm định lại sau giải
+                if CaptchaGuard.check_and_guard(analysis):
+                    session_status = "CAPTCHA_PAUSED"
+                    self.memory.scenario_engine.register_event_feedback(pid, "CAPTCHA_ALERT", {"analysis": analysis})
+                    input("Nhấn Enter sau khi bạn đã giải Captcha xong trên trình duyệt...")
+                    if not CaptchaGuard.recheck_screen_after_solve(self.ai):
+                        session_status = "CAPTCHA_UNRESOLVED"
+                        print("[Runner Guard] Captcha vẫn chưa được giải an toàn. Hủy phiên để bảo vệ tài khoản!")
+                        return
+                    self.memory.scenario_engine.register_event_feedback(pid, "CAPTCHA_RESOLVED")
 
-                    # Sử dụng plots_summary từ AI
-                    ai_plots = analysis.get("plots_summary", {})
-                    if ai_plots.get("has_ready_crops"):
-                        print("[Runner Perception] AI thị giác phát hiện cây đã chín trên các ô đất!")
-                    if ai_plots.get("has_empty_plots"):
-                        print("[Runner Perception] AI thị giác phát hiện có ô đất trống chưa gieo hạt!")
+                # Kiểm tra Popup che màn hình (thực hiện độc lập, không phụ thuộc vào Captcha)
+                if analysis.get("has_blocking_popup") and analysis.get("popup_close_button"):
+                    btn_x, btn_y = analysis["popup_close_button"]
+                    print(f"[Runner] Phát hiện Popup che, đang bấm tắt tại ({btn_x}, {btn_y})...")
+                    HumanMouse.click(btn_x, btn_y, random_offset=persona["jitter_px"])
+                    HumanMouse.human_sleep(1.0, 1.8)
 
-                    # Kiểm tra Nấm (Chỉ nhặt nếu phiên này người chơi chú ý nhìn thấy)
-                    if analysis.get("has_mushrooms") and analysis.get("mushroom_positions"):
-                        if "MUSHROOMS" in session_plan["tasks_to_execute"]:
-                            mushrooms = analysis["mushroom_positions"]
-                            MushroomHunter.harvest_mushrooms(hwnd, mushrooms, is_screen_coords=True)
-                        else:
-                            print("[Tâm lý thị giác] Nấm mọc ở bãi cỏ rìa ngoài xa tầm mắt, phiên này người chơi vội vàng nên bỏ sót!")
+                # Kiểm tra vòng xoay đồng bộ Syncing...
+                if analysis.get("is_syncing"):
+                    print("[Runner Perception] Phát hiện game đang đồng bộ dữ liệu (Syncing...), chờ 2.5s...")
+                    time.sleep(2.5)
+
+                # Sử dụng plots_summary từ AI
+                ai_plots = analysis.get("plots_summary", {})
+                if ai_plots.get("has_ready_crops"):
+                    print("[Runner Perception] AI thị giác phát hiện cây đã chín trên các ô đất!")
+                if ai_plots.get("has_empty_plots"):
+                    print("[Runner Perception] AI thị giác phát hiện có ô đất trống chưa gieo hạt!")
+
+                # Kiểm tra Nấm (Chỉ nhặt nếu phiên này người chơi chú ý nhìn thấy)
+                if analysis.get("has_mushrooms") and analysis.get("mushroom_positions"):
+                    if "MUSHROOMS" in session_plan["tasks_to_execute"]:
+                        mushrooms = analysis["mushroom_positions"]
+                        MushroomHunter.harvest_mushrooms(hwnd, mushrooms, is_screen_coords=True)
+                    else:
+                        print("[Tâm lý thị giác] Nấm mọc ở bãi cỏ rìa ngoài xa tầm mắt, phiên này người chơi vội vàng nên bỏ sót!")
 
             # 6. THỰC THI TÁC VỤ RUỘNG ĐẤT THỰC TẾ TRONG GAME (HARVEST & PLANT)
             if "CROPS" in session_plan["tasks_to_execute"]:
@@ -353,21 +392,42 @@ class MasterRunner:
                 cx, cy, cw, ch = WindowHelper.get_client_rect_on_screen(hwnd)
                 if self.plot_coords and cw > 0 and ch > 0:
                     local_checks = []
-                    for (rel_x, rel_y) in self.plot_coords[:5]:
+                    # Kiểm tra toàn bộ các plot_coords để có đánh giá đại diện chính xác
+                    for (rel_x, rel_y) in self.plot_coords:
                         screen_x, screen_y = cx + rel_x, cy + rel_y
                         p_state = LocalVisionEngine.analyze_plot_state(post_scr, screen_x, screen_y)
                         local_checks.append(p_state["state"])
 
-                    has_growing_or_seedling = any(s in ("GROWING", "READY") for s in local_checks)
-                    has_empty = any(s == "EMPTY" for s in local_checks)
-
-                    if "CROPS" in session_plan["tasks_to_execute"]:
-                        if crops_need_harvest:
-                            verification["harvest_verified"] = not any(s == "READY" for s in local_checks)
-                        verification["plant_verified"] = has_growing_or_seedling or not has_empty
+                    known_plots = [s for s in local_checks if s in ("GROWING", "READY", "EMPTY")]
+                    growing_count = sum(1 for s in local_checks if s == "GROWING")
+                    ready_count = sum(1 for s in local_checks if s == "READY")
+                    empty_count = sum(1 for s in local_checks if s == "EMPTY")
+                    unknown_count = sum(1 for s in local_checks if s not in ("GROWING", "READY", "EMPTY"))
 
                     verification["tier1_local_verified"] = True
-                    verification["details"].append(f"LocalVision plots sample: {local_checks}")
+                    verification["details"].append(
+                        f"LocalVision plots (Total={len(local_checks)}): GROWING={growing_count}, READY={ready_count}, EMPTY={empty_count}, UNKNOWN={unknown_count}"
+                    )
+
+                    if "CROPS" in session_plan["tasks_to_execute"]:
+                        min_confident_plots = max(3, int(len(self.plot_coords) * 0.4))
+                        if len(known_plots) >= min_confident_plots:
+                            if crops_need_harvest:
+                                # Hậu kiểm thu hoạch: Đã gặt hết cây chín nếu ready_count == 0
+                                verification["harvest_verified"] = (ready_count == 0)
+
+                            # Hậu kiểm gieo hạt: Chỉ coi là PASS khi có bằng chứng dương tính (GROWING > 0 và không còn ô đất trống)
+                            if crops_need_harvest or ai_detected_empty or not self.memory.data.get(pid, {}).get("planted_crop"):
+                                if growing_count > 0 and empty_count == 0:
+                                    verification["plant_verified"] = True
+                                elif growing_count > 0 and empty_count > 0:
+                                    verification["plant_verified"] = False  # Vẫn còn ô đất trống bị bỏ sót
+                                elif empty_count > 0 and growing_count == 0:
+                                    verification["plant_verified"] = False
+                                else:
+                                    verification["plant_verified"] = None
+                        else:
+                            verification["details"].append("Mẫu nhận diện ô đất không đủ độ tin cậy để kết luận hậu kiểm (quá nhiều UNKNOWN).")
 
                 # B. TIER 2: KIỂM CHỨNG BẰNG CLOUD VLM (CLAUDE HAIKU 5.5) NẾU CÓ BẬT
                 if self.ai_enabled and self.ai.api_key:
@@ -377,9 +437,11 @@ class MasterRunner:
                         pre_plots = analysis.get("plots_summary", {})
 
                         if pre_plots.get("has_ready_crops"):
-                            verification["harvest_verified"] = not post_plots.get("has_ready_crops", True)
-                        if pre_plots.get("has_empty_plots"):
-                            verification["plant_verified"] = not post_plots.get("has_empty_plots", True)
+                            if "has_ready_crops" in post_plots:
+                                verification["harvest_verified"] = (post_plots["has_ready_crops"] is False)
+                        if pre_plots.get("has_empty_plots") or crops_need_harvest:
+                            if "has_empty_plots" in post_plots:
+                                verification["plant_verified"] = (post_plots["has_empty_plots"] is False)
 
                         verification["tier2_vlm_verified"] = True
                     else:
@@ -387,31 +449,44 @@ class MasterRunner:
                         verification["tier2_vlm_verified"] = False
                         verification["details"].append(f"Cloud VLM verification: {err_reason}")
 
-                # C. ĐÁNH GIÁ CHỈ SỐ STATUS CHÍNH XÁC (Tránh gán bừa 'verified' khi chưa kiểm chứng)
-                checks = [v for k, v in [("harvest", verification["harvest_verified"]), ("plant", verification["plant_verified"])] if v is not None]
-                if checks:
-                    if all(checks):
+                # C. ĐÁNH GIÁ CHỈ SỐ STATUS CHÍNH XÁC (Phân biệt PASS, FAIL, UNVERIFIED)
+                valid_checks = []
+                for label, v in [("harvest", verification["harvest_verified"]), ("plant", verification["plant_verified"])]:
+                    if v is not None:
+                        valid_checks.append(v)
+
+                if valid_checks:
+                    if all(c is True for c in valid_checks):
                         verification["status"] = "VERIFIED_SUCCESS"
-                    elif any(checks):
+                    elif any(c is True for c in valid_checks):
                         verification["status"] = "VERIFIED_PARTIAL"
                     else:
                         verification["status"] = "VERIFIED_FAILED"
-                elif verification["tier1_local_verified"]:
-                    verification["status"] = "VERIFIED_SUCCESS"
                 else:
-                    verification["status"] = "VERIFICATION_UNAVAILABLE"
+                    # Tuyệt đối không được gán VERIFIED_SUCCESS khi không có bằng chứng dương tính!
+                    verification["status"] = "UNVERIFIED"
 
                 print(f"[Runner Verification Report] Kết quả hậu kiểm: {verification['status']} | Chi tiết: {verification}")
             else:
                 verification["status"] = "VERIFICATION_SKIPPED_NO_SCREENSHOT"
 
+            # Xác định trạng thái thực thi dựa trên kết quả hậu kiểm
+            if verification["status"] == "VERIFIED_FAILED":
+                session_status = "COMPLETED_WITH_VERIFICATION_FAILURE"
+            elif verification["status"] == "UNVERIFIED":
+                session_status = "COMPLETED_UNVERIFIED"
+            else:
+                session_status = "COMPLETED"
+
             # Ghi nhận hoàn thành phiên vào Working Memory của Agent (Park 2023 / Concordia 2024)
             self.memory.scenario_engine.register_event_feedback(
                 profile_id=pid,
                 event_type="SESSION_COMPLETED",
-                details={"tasks_executed": session_plan["tasks_to_execute"]}
+                details={
+                    "tasks_executed": session_plan["tasks_to_execute"],
+                    "verification_status": verification["status"]
+                }
             )
-            session_status = "COMPLETED"
 
             # 9. Cơ chế nán lại nhìn ruộng, rê chuột ngắm farm trước khi đóng
             HumanMouse.post_farming_linger(min_sec=6.0, max_sec=18.0)
@@ -420,13 +495,27 @@ class MasterRunner:
             session_status = f"EXCEPTION: {str(e)}"
             print(f"[Runner Exception] Gặp lỗi ngoài dự kiến trong phiên profile '{pname}': {e}")
         finally:
-            # Ghi nhận nhật ký kiểm toán phiên
-            self._record_audit_log(pid, pname, session_plan, session_status, verification, eff_params)
+            cleanup_error = None
+            try:
+                print(f"[Runner] Đang dọn dẹp và đóng profile '{pname}'...")
+                self.gpm.stop_profile(pid)
+            except Exception as clean_ex:
+                cleanup_error = str(clean_ex)
+                print(f"[Runner Cleanup Warning] Lỗi dọn dẹp khi đóng profile '{pname}': {clean_ex}")
 
-            # LUÔN LUÔN đảm bảo đóng profile qua GPM API để giải phóng tài nguyên
-            print(f"[Runner] Đang dọn dẹp và đóng profile '{pname}'...")
-            self.gpm.stop_profile(pid)
-            print(f"[Runner] {scenario['real_name']} đã đóng tab an toàn, kết thúc phiên làm việc trên '{pname}' (Status={session_status})!")
+            # Ghi nhận nhật ký kiểm toán phiên với đầy đủ execution_status, verification_status và cleanup_error
+            self._record_audit_log(
+                profile_id=pid,
+                profile_name=pname,
+                session_plan=session_plan,
+                status=session_status,
+                verification=verification,
+                eff_params=eff_params,
+                execution_status=session_status,
+                verification_status=verification.get("status", "UNVERIFIED"),
+                cleanup_error=cleanup_error
+            )
+            print(f"[Runner] {scenario['real_name']} đã kết thúc phiên làm việc trên '{pname}' (ExecStatus={session_status}, VerifyStatus={verification['status']}, Cleanup={'OK' if not cleanup_error else cleanup_error})!")
 
     def start_loop(self):
         """Vòng lặp chính điều phối 33 profile theo lịch trình người thật."""

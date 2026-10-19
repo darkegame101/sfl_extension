@@ -27,6 +27,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
+    - name: Secret hygiene scanning (Rule F)
+      run: |
+        python scripts/scan_secrets.py
+
     - name: Bytecode compilation & syntax check
       run: |
         python -m compileall core scheduler tasks tests run.py gpm_ui.py
