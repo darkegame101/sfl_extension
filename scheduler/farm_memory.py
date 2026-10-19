@@ -175,11 +175,12 @@ class FarmMemory:
             prof_data["last_date"] = today_str
             prof_data["session_count_today"] = 0
 
-    def record_planting(self, profile_id: str, crop_name: str, grow_seconds: int, profile_name: str = ""):
+    def record_planting(self, profile_id: str, crop_name: str, grow_seconds: int, profile_name: str = "", verified: bool = False):
         """
         Ghi nhận vừa gieo một loại cây mới:
         - Tính thời điểm chín = Hiện tại + grow_seconds
         - Next run time = Thời điểm chín + (Độ trễ quên từ Persona * Hệ số bối cảnh ngày từ Scenario)
+        - Lưu cờ verified để phân biệt giữa lệnh click vừa phát và xác minh thị giác sau đó.
         """
         now = time.time()
         ready_time = now + grow_seconds
@@ -208,6 +209,8 @@ class FarmMemory:
             prof_data["ready_at"] = ready_time
             prof_data["next_run_at"] = next_run
             prof_data["last_session_at"] = now
+            prof_data["planting_verified"] = verified
+            prof_data["planting_status"] = "VERIFIED" if verified else "COMMANDS_ISSUED"
             prof_data["session_count_today"] = prof_data.get("session_count_today", 0) + 1
             final_count = prof_data["session_count_today"]
 
@@ -217,6 +220,14 @@ class FarmMemory:
         print(f"[FarmMemory] {scenario['real_name']} ({scenario['job']}): Vừa gieo '{crop_name}' (Chín lúc {time.strftime('%H:%M:%S', time.localtime(ready_time))})")
         print(f" -> Tâm trạng: [{scenario['today_mood']}] | Trễ quên: +{forgetting_delay/60:.1f} phút -> Mở lại lúc: {time.strftime('%H:%M:%S', time.localtime(next_run))}")
         print(f" -> Tiến độ hôm nay: {final_count}/{cap} phiên")
+
+    def mark_planting_verified(self, profile_id: str, verified: bool = True):
+        """Đánh dấu trạng thái gieo hạt đã được hậu kiểm thị giác xác nhận thành công."""
+        def _update(data):
+            prof = data.setdefault(profile_id, {})
+            prof["planting_verified"] = verified
+            prof["planting_status"] = "VERIFIED" if verified else "UNVERIFIED"
+        self._mutate(_update)
 
     def is_session_capped_today(self, profile_id: str, profile_name: str = "") -> bool:
         """Kiểm tra profile này đã đạt giới hạn phiên theo kịch bản hôm nay chưa."""

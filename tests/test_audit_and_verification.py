@@ -215,6 +215,41 @@ class TestAuditAndVerification(unittest.TestCase):
         self.assertEqual(verification["status"], "VERIFICATION_SKIPPED_NO_SCREENSHOT")
         self.assertIn("Perception failed", verification["details"][0])
 
+    def test_task_verification_contracts_and_evidence_separation(self):
+        """
+        Kiểm tra C4 Verification Contract:
+        - Tác vụ click chỉ báo cáo lệnh đã phát (COMMANDS_ISSUED), verified=False.
+        - Không tuyên bố thành công khi thiếu bằng chứng thị giác.
+        - Phân biệt rõ COMMANDS_ISSUED, PARTIALLY_EXECUTED, FAILED, VERIFIED.
+        """
+        from unittest.mock import MagicMock
+        from tasks.crop_manager import CropManager
+        from tasks.farm_maintenance import FarmMaintenance
+
+        # 1. Thao tác crop_manager không tự động khẳng định verified
+        mgr = CropManager(MagicMock())
+        # plant_plots với hwnd=0 giả lập invalid window
+        res_invalid = mgr.plant_plots(0, (100, 100), [(200, 200)], "p1", "Sunflower", 60)
+        self.assertEqual(res_invalid["status"], "INVALID_HWND")
+        self.assertFalse(res_invalid["verified"])
+        self.assertEqual(res_invalid["commands_issued"], 0)
+
+        # 2. Thao tác farm_maintenance không tự động khẳng định verified
+        res_tree_invalid = FarmMaintenance.chop_trees(0, [(300, 300)])
+        self.assertEqual(res_tree_invalid["status"], "NOOP")
+        self.assertFalse(res_tree_invalid["verified"])
+        self.assertEqual(res_tree_invalid["commands_issued"], 0)
+
+        res_honey_invalid = FarmMaintenance.harvest_honey(0, [(400, 400)])
+        self.assertEqual(res_honey_invalid["status"], "NOOP")
+        self.assertFalse(res_honey_invalid["verified"])
+        self.assertEqual(res_honey_invalid["commands_issued"], 0)
+
+        res_comp_invalid = FarmMaintenance.manage_composter(0, (500, 500))
+        self.assertEqual(res_comp_invalid["status"], "NOOP")
+        self.assertFalse(res_comp_invalid["verified"])
+        self.assertEqual(res_comp_invalid["commands_issued"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

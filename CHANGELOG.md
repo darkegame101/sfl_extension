@@ -31,12 +31,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Bayesian multi-source evidence fusion (`EvidenceFuser`) fusing LocalVision (HSV/OpenCV) and Cloud VLM (Claude Haiku 5.5) with conflict penalties.
   - Explicit Abstention Policy halting automation on Captcha, game syncing, or uncertainty > 50%.
   - OSWorld-style verifiable predicate engine (`TaskVerifier`, Xie et al., NeurIPS 2024) asserting strict pre/post-conditions on harvest and planting actions.
-- **Goal Hierarchy, Task Resumption & State-Aware Scheduling (`scheduler/goal_tracker.py`) [Branch 2]**:
+- **Goal Hierarchy, Task Resumption & State-Aware Scheduling (`scheduler/goal_tracker.py`) [Branch 2, C3.1, C5]**:
   - Implemented ACT-R cognitive goal decomposition (`GoalTracker`, `SubGoal`) following Ritter et al. (WIREs 2019).
   - Problem state serialization (`TaskCheckpoint`) based on Borst et al. (CHI 2015) problem state bottleneck.
-  - Memory for Goals reconciler (`TaskResumptionManager`, Trafton & Altmann 2003) comparing checkpoints with observed environment belief to resume partial harvests/planting without blind full-cycle restarts.
+  - Enforced single active subgoal policy and bounded valid transitions table (`VALID_GOAL_TRANSITIONS`).
+  - Added `COMMANDS_ISSUED` and `SKIPPED` goal statuses; decoupled command issuance from post-condition verification.
+  - Resolved `active_index` drift upon out-of-order completions via `_sync_active_index_after_terminal`.
+  - Added `fail_subgoal`, `skip_subgoal`, `abort_subgoal`, `record_commands_issued`, and `interrupt_active_subgoal` APIs.
+  - Memory for Goals reconciler (`TaskResumptionManager`, Trafton & Altmann 2003) comparing checkpoints with observed environment belief to resume partial harvests/planting, abstaining on uncertainty, and replanning adaptively when observed belief contradicts stale checkpoints.
+  - Backward-compatible legacy checkpoint parsing in `get_verified_action` ensuring unverified actions are never promoted to verified.
+- **Precision Hardware Mouse Win32 Contract & In-Place Clicking (`core/human_mouse.py`) [C1]**:
+  - Declared strict ctypes `argtypes` and `restype` for Win32 `user32.SendInput`.
+  - Implemented `click_in_place(button='left')` bypassing trajectory recalculation for repeated multi-clicks.
+  - Added unit test suite `tests/test_human_mouse_api.py` validating exact `INPUT` structures, `dwFlags` order (down before up), and return contracts.
+- **CropManager Error Handling & Memory Consistency (`tasks/crop_manager.py`) [C2, C2.3]**:
+  - Added immediate abort upon tool selection failure (`TOOL_SELECTION_FAILED`), skipping clicks and preventing invalid memory mutations.
+  - Wrapped plot operations in exception-safe reporting returning `commands_attempted`, `commands_issued`, and `PARTIALLY_EXECUTED` / `FAILED` statuses without hiding partial actions.
+  - Added `record_memory` flag, preventing memory corruption when 0 clicks succeed or errors occur mid-loop.
+  - Added comprehensive test suite `tests/test_crop_manager.py` (18 unit tests).
+- **Unified Task Return & Verification Contract (`tasks/`, `run.py`, `tests/test_audit_and_verification.py`) [C4]**:
+  - Standardized task return contracts across `crop_manager.py` and `farm_maintenance.py` to distinguish `COMMANDS_ISSUED`, `PARTIALLY_EXECUTED`, `FAILED`, and `NOOP`, explicitly marking `verified: False`.
+  - Maintained memory consistency by marking planting unverified until post-verification confirmation (`mark_planting_verified`).
 - **Atomic Checkpoint Persistence (`scheduler/farm_memory.py`)**: Added `save_checkpoint()`, `get_checkpoint()`, and `clear_checkpoint()` with atomic `.tmp -> os.replace` guarantees.
-- **Automated Unit Tests for Dual Branches (`tests/test_evidence_engine.py`, `tests/test_goal_tracker.py`)**: Added 17 comprehensive unit tests (suite expanded to 65 passing tests) covering belief fusion, conflict penalty, abstention triggers, OSWorld predicates, goal lifecycle, and discrepancy resumption.
+- **Automated Unit Tests Expanded (108 tests passing)**: Full suite passes deterministically offline across all modules.
 
 ### Changed
 - **3-Hit Tree Chopping Rule & Human Fumble Recovery (`tasks/farm_maintenance.py`)**: Updated `chop_trees` to strictly require exactly 3 successful hits per tree in alignment with Sunflower Land mechanics. If a human miss/fumble click occurs, the agent automatically recovers and delivers compensation strikes until all 3 hits land on the tree.

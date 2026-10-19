@@ -61,89 +61,116 @@ class FarmMaintenance:
         tree_coords: List[Tuple[int, int]],
         scenario: Dict[str, Any] = None,
         hits_per_tree: int = 3
-    ):
+    ) -> Dict[str, Any]:
         """
         Chặt cây lấy gỗ theo danh sách tọa độ:
-        - Quy chuẩn Sunflower Land: Mỗi cây cần đúng tối thiểu 3 nhát click thành công để đốn hạ.
-        - Mô phỏng hành vi người thật:
-          + Số nhát click có tính bất định: Thường là 3 nhát, nhưng 35% trường hợp nhấp 4-5 nhát do quán tính ngón tay.
-          + Thời gian giữa các nhát click có độ chênh lệch sinh học rõ rệt (Inter-Strike Jitter), không đều chằn chặn.
-          + Tự phục hồi sau click trượt (fumble_click): Bù thêm nhát để đảm bảo cây luôn được đốn ngã.
-          + Nghỉ nhịp thở tự nhiên giữa 2 gốc cây (0.75s - 1.45s * speed_mult).
+        - Di chuyển chuột tới từng gốc cây (move_to 1 lần duy nhất trên mỗi cây).
+        - Thực hiện các nhát đốn liên tiếp tại chỗ qua click_in_place(), loại bỏ chi phí tính quỹ đạo Bézier lặp lại.
+        - Phát lệnh đốn gỗ (COMMAND_ISSUED). Lưu ý: Việc phát lệnh không cấu thành bằng chứng cây đã đốn ngã thành công.
         """
         if not tree_coords or not hwnd:
-            return
+            return {"trees_targeted": 0, "commands_issued": 0, "status": "NOOP", "verified": False}
 
-        miss_prob = scenario.get("effective_miss_click_prob", scenario.get("miss_click_prob", 0.05)) if scenario else 0.05
         speed_mult = scenario.get("speed_mult", scenario.get("effective_speed_multiplier", 1.0)) if scenario else 1.0
-        jitter_px = scenario.get("jitter_px", 4) if scenario else 4
 
         print(f"[FarmMaintenance] Bắt đầu đốn hạ {len(tree_coords)} cây trên đảo (Chuẩn tối thiểu {hits_per_tree} nhát/cây, Tốc độ: {speed_mult:.2f}x)...")
+
+        total_commands_issued = 0
 
         for idx, (rel_x, rel_y) in enumerate(tree_coords, 1):
             screen_x, screen_y = WindowHelper.to_screen_coords(hwnd, rel_x, rel_y)
 
-            # Số nhát click thực tế cho cây này (đôi khi 4 hoặc 5 do quán tính ngón tay)
-            target_hits = FarmMaintenance._calculate_strikes_for_tree(scenario, base_hits=hits_per_tree)
-            is_overclick = (target_hits > hits_per_tree)
-            overclick_note = f" (Người chơi nhấp thêm {target_hits - hits_per_tree} nhát theo quán tính)" if is_overclick else ""
-            print(f" -> Đang chặt cây thứ {idx}/{len(tree_coords)} tại ({screen_x}, {screen_y}) | Kế hoạch: {target_hits} nhát{overclick_note}...")
+            # 1. Định vị con trỏ chuột tới thân cây (Duy nhất 1 lần cho cây này)
+            HumanMouse.move_to(screen_x, screen_y)
 
-            successful_hits = 0
-            max_attempts = target_hits + 5
-            attempts = 0
+            # 2. Số nhát click mục tiêu theo cấu hình
+            target_hits = FarmMaintenance._calculate_strikes_for_tree(scenario, base_hits=hits_per_tree) if scenario else hits_per_tree
+            print(f" -> Đang chặt cây thứ {idx}/{len(tree_coords)} tại ({screen_x}, {screen_y}) | Kế hoạch: {target_hits} nhát...")
 
-            while successful_hits < target_hits and attempts < max_attempts:
-                attempts += 1
-                if random.random() < miss_prob:
-                    HumanMouse.fumble_click(screen_x, screen_y, miss_offset=10)
-                    HumanMouse.human_sleep(0.28 * speed_mult, 0.48 * speed_mult)
-                    # Click trượt rìa ngoài -> không tính nhát chém trúng đích
-                    continue
+            for hit_idx in range(1, target_hits + 1):
+                click_res = HumanMouse.click_in_place(button='left')
+                if not click_res:
+                    print(f"    [FarmMaintenance] Cảnh báo: Lệnh click_in_place #{hit_idx} thất bại: {click_res.error}")
+                else:
+                    total_commands_issued += 1
+                    strike_label = f"#{hit_idx}/{target_hits}"
+                    print(f"    * Nhát đốn gỗ {strike_label} đã phát lệnh...")
 
-                successful_hits += 1
-                strike_label = f"#{successful_hits}/{target_hits}"
-                if successful_hits > hits_per_tree:
-                    strike_label += " [Quán tính tay]"
-
-                HumanMouse.click(screen_x, screen_y, random_offset=min(jitter_px, 4))
-                print(f"    * Nhát đốn gỗ {strike_label} trúng đích...")
-
-                if successful_hits < target_hits:
-                    delay = FarmMaintenance._get_inter_strike_delay(successful_hits, target_hits, speed_mult)
+                if hit_idx < target_hits:
+                    delay = FarmMaintenance._get_inter_strike_delay(hit_idx, target_hits, speed_mult)
                     time.sleep(delay)
 
             # Nghỉ nhịp thở giữa 2 cây liên tiếp
             inter_tree_rest = random.uniform(0.75, 1.45) * speed_mult
             time.sleep(inter_tree_rest)
 
-        print(f"[FarmMaintenance] Đã đốn hạ xong {len(tree_coords)} cây theo kế hoạch phiên!")
+        print(f"[FarmMaintenance] Đã phát xong lệnh đốn hạ {len(tree_coords)} cây theo kế hoạch phiên!")
+        return {
+            "trees_targeted": len(tree_coords),
+            "commands_issued": total_commands_issued,
+            "status": "COMMANDS_ISSUED",
+            "verified": False
+        }
 
     @staticmethod
-    def harvest_honey(hwnd: int, beehive_coords: List[Tuple[int, int]], scenario: Dict[str, Any] = None):
+    def harvest_honey(hwnd: int, beehive_coords: List[Tuple[int, int]], scenario: Dict[str, Any] = None) -> Dict[str, Any]:
         """Thu hoạch mật ong từ các tổ ong chín."""
         if not beehive_coords or not hwnd:
-            return
+            return {"beehives_targeted": 0, "commands_issued": 0, "status": "NOOP", "verified": False}
 
         speed_mult = scenario.get("speed_mult", scenario.get("effective_speed_multiplier", 1.0)) if scenario else 1.0
         print(f"[FarmMaintenance] Đang thu hoạch {len(beehive_coords)} tổ ong mật (Tốc độ: {speed_mult:.2f}x)...")
-        for idx, (rel_x, rel_y) in enumerate(beehive_coords, 1):
-            screen_x, screen_y = WindowHelper.to_screen_coords(hwnd, rel_x, rel_y)
-            print(f" -> Thu mật tại tổ {idx} ({screen_x}, {screen_y})...")
-            HumanMouse.click(screen_x, screen_y, random_offset=3)
-            HumanMouse.human_sleep(0.6 * speed_mult, 1.2 * speed_mult)
+        commands_issued = 0
+        loop_error = None
 
-        print("[FarmMaintenance] Đã thu hoạch xong mật ong!")
+        try:
+            for idx, (rel_x, rel_y) in enumerate(beehive_coords, 1):
+                screen_x, screen_y = WindowHelper.to_screen_coords(hwnd, rel_x, rel_y)
+                print(f" -> Thu mật tại tổ {idx} ({screen_x}, {screen_y})...")
+                HumanMouse.click(screen_x, screen_y, random_offset=3)
+                commands_issued += 1
+                HumanMouse.human_sleep(0.6 * speed_mult, 1.2 * speed_mult)
+        except Exception as e:
+            loop_error = str(e)
+            print(f"[FarmMaintenance Exception] Lỗi khi thu hoạch mật ong: {e}")
+
+        status = "PARTIALLY_EXECUTED" if loop_error and commands_issued > 0 else ("FAILED" if loop_error else "COMMANDS_ISSUED")
+        print(f"[FarmMaintenance] Đã thu hoạch xong mật ong (Status: {status}, Issued: {commands_issued}/{len(beehive_coords)})!")
+        return {
+            "beehives_targeted": len(beehive_coords),
+            "commands_issued": commands_issued,
+            "status": status,
+            "error": loop_error,
+            "verified": False
+        }
 
     @staticmethod
-    def manage_composter(hwnd: int, composter_coord: Tuple[int, int], scenario: Dict[str, Any] = None):
+    def manage_composter(hwnd: int, composter_coord: Tuple[int, int], scenario: Dict[str, Any] = None) -> Dict[str, Any]:
         """Bấm nạp phế phẩm hữu cơ vào thùng ủ phân Composter."""
         if not composter_coord or not hwnd:
-            return
+            return {"composter_targeted": 0, "commands_issued": 0, "status": "NOOP", "verified": False}
 
         speed_mult = scenario.get("speed_mult", scenario.get("effective_speed_multiplier", 1.0)) if scenario else 1.0
-        screen_x, screen_y = WindowHelper.to_screen_coords(hwnd, composter_coord[0], composter_coord[1])
-        print(f"[FarmMaintenance] Đang kiểm tra và nạp phế phẩm vào thùng Composter tại ({screen_x}, {screen_y}) (Tốc độ: {speed_mult:.2f}x)...")
-        HumanMouse.click(screen_x, screen_y, random_offset=4)
-        HumanMouse.human_sleep(0.8 * speed_mult, 1.5 * speed_mult)
-        print("[FarmMaintenance] Đã nạp Composter thành công!")
+        commands_issued = 0
+        error = None
+
+        try:
+            screen_x, screen_y = WindowHelper.to_screen_coords(hwnd, composter_coord[0], composter_coord[1])
+            print(f"[FarmMaintenance] Đang kiểm tra và nạp phế phẩm vào thùng Composter tại ({screen_x}, {screen_y}) (Tốc độ: {speed_mult:.2f}x)...")
+            HumanMouse.click(screen_x, screen_y, random_offset=4)
+            commands_issued = 1
+            HumanMouse.human_sleep(0.8 * speed_mult, 1.5 * speed_mult)
+            status = "COMMANDS_ISSUED"
+            print("[FarmMaintenance] Đã nạp Composter thành công!")
+        except Exception as e:
+            error = str(e)
+            status = "FAILED"
+            print(f"[FarmMaintenance Exception] Lỗi khi nạp Composter: {e}")
+
+        return {
+            "composter_targeted": 1,
+            "commands_issued": commands_issued,
+            "status": status,
+            "error": error,
+            "verified": False
+        }

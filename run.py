@@ -379,98 +379,138 @@ class MasterRunner:
 
             # 6. THỰC THI TÁC VỤ RUỘNG ĐẤT THỰC TẾ TRONG GAME (HARVEST & PLANT)
             if "CROPS" in session_plan["tasks_to_execute"]:
-                crops_need_harvest = (
-                    self.memory.is_crop_ready_for_harvest(pid) or
-                    pre_belief.ready_plots_count > 0 or
-                    resumption_plan.get("resumption_mode") == "RESUME_PARTIAL_HARVEST"
-                )
-
-                # A. Thu hoạch cây chín
-                if crops_need_harvest:
-                    goal_tracker.start_subgoal(SubGoalType.HARVEST_CROPS)
-                    harvest_plots = self.plot_coords
-                    if resumption_plan.get("resumption_mode") == "RESUME_PARTIAL_HARVEST" and resumption_plan.get("target_plots"):
-                        harvest_plots = [self.plot_coords[i] for i in resumption_plan["target_plots"] if i < len(self.plot_coords)]
-
-                    print(f"[Runner] Tiến hành thu hoạch {len(harvest_plots)} ô đất (BeliefReady={pre_belief.ready_plots_count})...")
-                    self.crop_mgr.harvest_plots(hwnd, harvest_plots, scenario=scenario)
-                    goal_tracker.complete_subgoal(SubGoalType.HARVEST_CROPS)
-                    self.memory.save_checkpoint(pid, asdict(goal_tracker.create_checkpoint(last_action="HARVEST_CROPS")))
+                if resumption_plan.get("resumption_mode") == "ABSTAIN_UNCERTAIN":
+                    print(f"[Runner Warning] Không đủ bằng chứng tin cậy để tiếp tục tác vụ ruộng ({resumption_plan.get('rationale')}). Tạm dừng tác vụ ruộng để bảo vệ tài khoản.")
+                    goal_tracker.skip_subgoal(SubGoalType.HARVEST_CROPS, reason="ABSTAIN_UNCERTAIN_OBSERVATION")
+                    goal_tracker.skip_subgoal(SubGoalType.SELECT_CROP, reason="ABSTAIN_UNCERTAIN_OBSERVATION")
+                    goal_tracker.skip_subgoal(SubGoalType.PLANT_SEEDS, reason="ABSTAIN_UNCERTAIN_OBSERVATION")
                 else:
-                    print(f"[Runner] Cây trồng chưa đến giờ chín, bỏ qua bước thu hoạch.")
-
-                # B. Chọn hạt giống thích ứng sinh học theo khung giờ tiếp theo
-                goal_tracker.start_subgoal(SubGoalType.SELECT_CROP)
-                in_slot, slot_reason, wait_to_next = self.memory.scenario_engine.is_in_active_time_slot(pid, pname)
-                is_last_session = (cur_sessions >= cap - 1)
-                selected_crop, grow_sec, crop_rationale = SmartCropSelector.select_best_crop(
-                    scenario=scenario,
-                    current_hour=cur_hour,
-                    time_until_next_slot=wait_to_next,
-                    is_last_session_today=is_last_session
-                )
-                goal_tracker.complete_subgoal(SubGoalType.SELECT_CROP)
-
-                print("\n" + "-" * 70)
-                print(f" [LỰA CHỌN HẠT GIỐNG THÍCH ỨNG SINH HỌC]")
-                print(f" -> Loại hạt chọn: '{selected_crop}' (Thời gian lớn: {grow_sec/60:.1f} phút)")
-                print(f" -> Lý do đời thực: \"{crop_rationale}\"")
-                print("-" * 70 + "\n")
-
-                # C. Cơ chế treo tab gián đoạn đời thực (Xao nhãng trước khi gieo)
-                distract_prob = scenario.get("distraction_prob", 0.12)
-                if random.random() < distract_prob:
-                    afk_reason = random.choice(scenario.get("daily_distractions", ["Có việc bận đột xuất ngoài đời"]))
-                    self.memory.scenario_engine.register_event_feedback(pid, "AFK_DISTRACTION", {"reason": afk_reason})
-                    HumanMouse.tab_lingering_pause(min_sec=20.0, max_sec=60.0, reason=afk_reason)
-
-                # D. Gieo hạt nếu vừa thu hoạch xong HOẶC đất trống
-                should_plant = (
-                    crops_need_harvest or
-                    pre_belief.empty_plots_count > 0 or
-                    resumption_plan.get("resumption_mode") == "RESUME_PARTIAL_PLANTING" or
-                    not self.memory.data.get(pid, {}).get("planted_crop")
-                )
-                if should_plant:
-                    goal_tracker.start_subgoal(SubGoalType.PLANT_SEEDS)
-                    plant_plots = self.plot_coords
-                    if resumption_plan.get("resumption_mode") == "RESUME_PARTIAL_PLANTING" and resumption_plan.get("target_plots"):
-                        plant_plots = [self.plot_coords[i] for i in resumption_plan["target_plots"] if i < len(self.plot_coords)]
-
-                    print(f"[Runner] Tiến hành gieo '{selected_crop}' lên {len(plant_plots)} ô đất...")
-                    self.crop_mgr.plant_plots(
-                        hwnd=hwnd,
-                        seed_box_coord=self.seed_box_coord,
-                        plot_coords=plant_plots,
-                        profile_id=pid,
-                        crop_name=selected_crop,
-                        grow_seconds=grow_sec,
-                        scenario=scenario,
-                        profile_name=pname
+                    crops_need_harvest = (
+                        resumption_plan.get("resumption_mode") == "RESUME_PARTIAL_HARVEST" or
+                        (
+                            resumption_plan.get("resumption_mode") not in ("ADVANCE_TO_VERIFICATION", "ADVANCE_TO_PLANTING") and
+                            (self.memory.is_crop_ready_for_harvest(pid) or pre_belief.ready_plots_count > 0)
+                        )
                     )
-                    goal_tracker.complete_subgoal(SubGoalType.PLANT_SEEDS)
-                    self.memory.save_checkpoint(pid, asdict(goal_tracker.create_checkpoint(
-                        last_action="PLANT_SEEDS",
-                        metadata={"selected_crop": selected_crop, "grow_sec": grow_sec}
-                    )))
+
+                    # A. Thu hoạch cây chín
+                    if crops_need_harvest:
+                        goal_tracker.start_subgoal(SubGoalType.HARVEST_CROPS)
+                        harvest_plots = self.plot_coords
+                        if resumption_plan.get("resumption_mode") == "RESUME_PARTIAL_HARVEST" and resumption_plan.get("target_plots"):
+                            harvest_plots = [self.plot_coords[i] for i in resumption_plan["target_plots"] if i < len(self.plot_coords)]
+
+                        print(f"[Runner] Tiến hành thu hoạch {len(harvest_plots)} ô đất (BeliefReady={pre_belief.ready_plots_count})...")
+                        h_res = self.crop_mgr.harvest_plots(hwnd, harvest_plots, scenario=scenario)
+                        if h_res.get("status") == "FAILED":
+                            goal_tracker.fail_subgoal(SubGoalType.HARVEST_CROPS, error_message=h_res.get("error", "HARVEST_FAILED"), metadata=h_res)
+                        else:
+                            goal_tracker.record_commands_issued(SubGoalType.HARVEST_CROPS, metadata=h_res)
+
+                        self.memory.save_checkpoint(pid, asdict(goal_tracker.create_checkpoint(
+                            last_attempted_action="HARVEST_CROPS",
+                            is_verified=False,
+                            metadata=h_res
+                        )))
+                    else:
+                        goal_tracker.skip_subgoal(SubGoalType.HARVEST_CROPS, reason="CROPS_NOT_READY")
+                        print(f"[Runner] Cây trồng chưa đến giờ chín, bỏ qua bước thu hoạch.")
+
+                    # B. Chọn hạt giống thích ứng sinh học theo khung giờ tiếp theo
+                    goal_tracker.start_subgoal(SubGoalType.SELECT_CROP)
+                    in_slot, slot_reason, wait_to_next = self.memory.scenario_engine.is_in_active_time_slot(pid, pname)
+                    is_last_session = (cur_sessions >= cap - 1)
+                    selected_crop, grow_sec, crop_rationale = SmartCropSelector.select_best_crop(
+                        scenario=scenario,
+                        current_hour=cur_hour,
+                        time_until_next_slot=wait_to_next,
+                        is_last_session_today=is_last_session
+                    )
+                    goal_tracker.complete_subgoal(SubGoalType.SELECT_CROP, metadata={"selected_crop": selected_crop, "grow_sec": grow_sec})
+
+                    print("\n" + "-" * 70)
+                    print(f" [LỰA CHỌN HẠT GIỐNG THÍCH ỨNG SINH HỌC]")
+                    print(f" -> Loại hạt chọn: '{selected_crop}' (Thời gian lớn: {grow_sec/60:.1f} phút)")
+                    print(f" -> Lý do đời thực: \"{crop_rationale}\"")
+                    print("-" * 70 + "\n")
+
+                    # C. Cơ chế treo tab gián đoạn đời thực (Xao nhãng trước khi gieo)
+                    distract_prob = scenario.get("distraction_prob", 0.12)
+                    if random.random() < distract_prob:
+                        afk_reason = random.choice(scenario.get("daily_distractions", ["Có việc bận đột xuất ngoài đời"]))
+                        self.memory.scenario_engine.register_event_feedback(pid, "AFK_DISTRACTION", {"reason": afk_reason})
+                        HumanMouse.tab_lingering_pause(min_sec=20.0, max_sec=60.0, reason=afk_reason)
+
+                    # D. Gieo hạt nếu vừa thu hoạch xong HOẶC đất trống
+                    should_plant = (
+                        resumption_plan.get("resumption_mode") in ("RESUME_PARTIAL_PLANTING", "ADVANCE_TO_PLANTING") or
+                        (
+                            resumption_plan.get("resumption_mode") != "ADVANCE_TO_VERIFICATION" and
+                            (
+                                crops_need_harvest or
+                                pre_belief.empty_plots_count > 0 or
+                                not self.memory.data.get(pid, {}).get("planted_crop")
+                            )
+                        )
+                    )
+                    if should_plant:
+                        goal_tracker.start_subgoal(SubGoalType.PLANT_SEEDS)
+                        plant_plots = self.plot_coords
+                        if resumption_plan.get("resumption_mode") == "RESUME_PARTIAL_PLANTING" and resumption_plan.get("target_plots"):
+                            plant_plots = [self.plot_coords[i] for i in resumption_plan["target_plots"] if i < len(self.plot_coords)]
+
+                        print(f"[Runner] Tiến hành gieo '{selected_crop}' lên {len(plant_plots)} ô đất...")
+                        p_res = self.crop_mgr.plant_plots(
+                            hwnd=hwnd,
+                            seed_box_coord=self.seed_box_coord,
+                            plot_coords=plant_plots,
+                            profile_id=pid,
+                            crop_name=selected_crop,
+                            grow_seconds=grow_sec,
+                            scenario=scenario,
+                            profile_name=pname,
+                            record_memory=True
+                        )
+                        if p_res.get("status") in ("TOOL_SELECTION_FAILED", "FAILED", "INVALID_HWND"):
+                            goal_tracker.fail_subgoal(SubGoalType.PLANT_SEEDS, error_message=p_res.get("error", "PLANT_FAILED"), metadata=p_res)
+                        else:
+                            goal_tracker.record_commands_issued(SubGoalType.PLANT_SEEDS, metadata=p_res)
+
+                        self.memory.save_checkpoint(pid, asdict(goal_tracker.create_checkpoint(
+                            last_attempted_action="PLANT_SEEDS",
+                            is_verified=False,
+                            metadata={"selected_crop": selected_crop, "grow_sec": grow_sec, "plant_result": p_res}
+                        )))
+                    else:
+                        goal_tracker.skip_subgoal(SubGoalType.PLANT_SEEDS, reason="PLANTING_NOT_NEEDED")
             else:
                 print(f"[Runner] Phiên này '{scenario['real_name']}' không làm ruộng (do phân loại phiên hoặc bỏ sót).")
 
             # 7. THỰC THI CÁC TÁC VỤ PHỤ TRỢ (CHẶT CÂY, MẬT ONG, COMPOSTER) THEO KẾ HOẠCH PHIÊN
             if "TREES" in session_plan["tasks_to_execute"]:
                 if self.memory.is_tree_ready_for_chop(pid):
-                    FarmMaintenance.chop_trees(hwnd, self.tree_coords, scenario=scenario, hits_per_tree=3)
+                    goal_tracker.start_subgoal(SubGoalType.CHOP_TREES)
+                    chop_res = FarmMaintenance.chop_trees(hwnd, self.tree_coords, scenario=scenario, hits_per_tree=3)
                     self.memory.record_tree_chop(pid)
+                    goal_tracker.record_commands_issued(SubGoalType.CHOP_TREES, metadata=chop_res)
+                    goal_tracker.complete_subgoal(SubGoalType.CHOP_TREES)
                 else:
                     ready_at = self.memory.data.get(pid, {}).get("trees_ready_at", 0)
                     rem_min = max(0.0, (ready_at - time.time()) / 60)
                     print(f"[Runner] Rừng cây đang trong thời gian hồi sinh (còn ~{rem_min:.1f} phút nữa mới mọc lại), bỏ qua chặt cây.")
+                    goal_tracker.skip_subgoal(SubGoalType.CHOP_TREES, reason="TREES_RECOVERING")
 
             if "HONEY" in session_plan["tasks_to_execute"]:
-                FarmMaintenance.harvest_honey(hwnd, self.beehive_coords, scenario=scenario)
+                goal_tracker.start_subgoal(SubGoalType.HARVEST_HONEY)
+                honey_res = FarmMaintenance.harvest_honey(hwnd, self.beehive_coords, scenario=scenario)
+                goal_tracker.record_commands_issued(SubGoalType.HARVEST_HONEY, metadata=honey_res)
+                goal_tracker.complete_subgoal(SubGoalType.HARVEST_HONEY)
 
             if "COMPOSTER" in session_plan["tasks_to_execute"]:
-                FarmMaintenance.manage_composter(hwnd, self.composter_coord, scenario=scenario)
+                goal_tracker.start_subgoal(SubGoalType.MANAGE_COMPOSTER)
+                comp_res = FarmMaintenance.manage_composter(hwnd, self.composter_coord, scenario=scenario)
+                goal_tracker.record_commands_issued(SubGoalType.MANAGE_COMPOSTER, metadata=comp_res)
+                goal_tracker.complete_subgoal(SubGoalType.MANAGE_COMPOSTER)
 
             # 8. HẬU KIỂM ĐÓNG VÒNG LẶP THỊ GIÁC (CLOSED-LOOP VERIFICATION)
             print("[Runner Verification] Bắt đầu quy trình hậu kiểm trạng thái màn hình khép kín...")
@@ -555,13 +595,33 @@ class MasterRunner:
                         verification["status"] = "UNVERIFIED"
 
                 if verification["status"] == VerificationStatus.VERIFIED_SUCCESS.value:
+                    if "CROPS" in session_plan["tasks_to_execute"]:
+                        if crops_need_harvest and verification.get("harvest_verified"):
+                            goal_tracker.complete_subgoal(SubGoalType.HARVEST_CROPS)
+                        if should_plant and verification.get("plant_verified"):
+                            goal_tracker.complete_subgoal(SubGoalType.PLANT_SEEDS)
+                            self.memory.mark_planting_verified(pid, True)
                     goal_tracker.complete_subgoal(SubGoalType.POST_VERIFICATION)
                     self.memory.clear_checkpoint(pid)
                     print(f"[Memory for Goals] Hậu kiểm thành công (PASS)! Đã dọn sạch Checkpoint.")
+                elif verification["status"] == VerificationStatus.VERIFIED_FAILED.value:
+                    if "CROPS" in session_plan["tasks_to_execute"]:
+                        if crops_need_harvest and verification.get("harvest_verified") is False:
+                            goal_tracker.fail_subgoal(SubGoalType.HARVEST_CROPS, error_message="HARVEST_VERIFICATION_FAILED")
+                        if should_plant and verification.get("plant_verified") is False:
+                            goal_tracker.fail_subgoal(SubGoalType.PLANT_SEEDS, error_message="PLANT_VERIFICATION_FAILED")
+                    goal_tracker.fail_subgoal(SubGoalType.POST_VERIFICATION, error_message="POST_VERIFICATION_FAILED")
+                    print(f"[Memory for Goals] Hậu kiểm thất bại ({verification['status']}), cập nhật Checkpoint trạng thái.")
+                    self.memory.save_checkpoint(pid, asdict(goal_tracker.create_checkpoint(
+                        last_action="POST_VERIFICATION",
+                        is_verified=False,
+                        metadata={"verification_status": verification["status"]}
+                    )))
                 else:
                     print(f"[Memory for Goals] Hậu kiểm chưa đạt tuyệt đối ({verification['status']}), cập nhật Checkpoint trạng thái.")
                     self.memory.save_checkpoint(pid, asdict(goal_tracker.create_checkpoint(
                         last_action="POST_VERIFICATION",
+                        is_verified=False,
                         metadata={"verification_status": verification["status"]}
                     )))
 
@@ -593,6 +653,15 @@ class MasterRunner:
         except Exception as e:
             session_status = f"EXCEPTION: {str(e)}"
             print(f"[Runner Exception] Gặp lỗi ngoài dự kiến trong phiên profile '{pname}': {e}")
+            interrupted_sg = goal_tracker.interrupt_active_subgoal(reason=f"EXCEPTION: {str(e)}")
+            if interrupted_sg:
+                ckpt = goal_tracker.create_checkpoint(
+                    last_attempted_action=interrupted_sg.name.value,
+                    is_verified=False,
+                    metadata={"exception": str(e), "profile_name": pname}
+                )
+                self.memory.save_checkpoint(pid, asdict(ckpt))
+                print(f"[Memory for Goals] Đã lưu Checkpoint phục hồi khi gặp ngoại lệ: SubGoal='{interrupted_sg.name.value}'")
         finally:
             cleanup_error = None
             try:

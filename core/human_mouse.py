@@ -8,7 +8,8 @@ import ctypes
 import math
 import random
 import time
-from typing import Tuple, List
+from dataclasses import dataclass
+from typing import Tuple, List, Optional
 
 # --- Cấu trúc Windows Win32 API ---
 ULONG_PTR = ctypes.c_ulong if ctypes.sizeof(ctypes.c_void_p) == 4 else ctypes.c_ulonglong
@@ -44,6 +45,25 @@ class POINT(ctypes.Structure):
     _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
 
 user32 = ctypes.windll.user32
+user32.SendInput.argtypes = [ctypes.c_uint, ctypes.POINTER(INPUT), ctypes.c_int]
+user32.SendInput.restype = ctypes.c_uint
+
+
+@dataclass
+class ClickResult:
+    """
+    Kết quả phát lệnh nhấp chuột cấp hệ điều hành (OS input insertion result).
+    Lưu ý: Việc SendInput chèn thành công sự kiện chuột vào hàng đợi OS (COMMAND_ISSUED)
+    không cấu thành bằng chứng trò chơi đã nhận hoặc xử lý thành công cú click.
+    """
+    success: bool
+    down_inserted: bool = False
+    up_inserted: bool = False
+    events_inserted: int = 0
+    error: Optional[str] = None
+
+    def __bool__(self) -> bool:
+        return self.success
 
 
 class HumanMouse:
@@ -73,7 +93,7 @@ class HumanMouse:
         inp.u.mi.dwFlags = flags
         inp.u.mi.time = 0
         inp.u.mi.dwExtraInfo = 0
-        user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
+        return user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
 
     @classmethod
     def set_cursor_pos(cls, x: int, y: int):
@@ -197,6 +217,63 @@ class HumanMouse:
         offset_y = random.choice([-1, 1]) * random.randint(3, 8)
         cls.move_to(target_x + offset_x, target_y + offset_y, random_offset=2)
         cls.human_sleep(hover_sec * 0.8, hover_sec * 1.2)
+
+    @classmethod
+    def click_in_place(
+        cls,
+        button: str = 'left',
+        hold_time: float = 0.05
+    ) -> ClickResult:
+        """
+        Nhấp chuột trực tiếp tại vị trí hiện tại của con trỏ (In-place Tap).
+        - Tuyệt đối không gọi move_to() và không tính toán đường cong quỹ đạo (Bézier/Fitts).
+        - Phát sự kiện Down và Up tương ứng với nút bấm được hỗ trợ ('left', 'right').
+        - Kiểm tra giá trị trả về của user32.SendInput để phát hiện chèn thất bại (0) hoặc chèn một phần (partial).
+        - Ghi chú: Kết quả thành công chỉ chứng minh OS đã tiếp nhận sự kiện chuột vào input stream
+          (COMMAND_ISSUED), không cấu thành bằng chứng trò chơi đã nhận hoặc xử lý thành công (POSTCONDITION_VERIFIED).
+        """
+        if button == 'left':
+            down_flag = MOUSEEVENTF_LEFTDOWN
+            up_flag = MOUSEEVENTF_LEFTUP
+        elif button == 'right':
+            down_flag = MOUSEEVENTF_RIGHTDOWN
+            up_flag = MOUSEEVENTF_RIGHTUP
+        else:
+            raise ValueError(f"Nút chuột không được hỗ trợ: '{button}'. Chỉ hỗ trợ 'left' hoặc 'right'.")
+
+        # 1. Nhấn chuột xuống (MouseDown)
+        ret_down = cls._send_input(down_flag)
+        if ret_down != 1:
+            return ClickResult(
+                success=False,
+                down_inserted=False,
+                up_inserted=False,
+                events_inserted=0,
+                error=f"SendInput thất bại khi chèn MouseDown ({button}): mã trả về {ret_down}"
+            )
+
+        # 2. Giữ phím tối thiểu kỹ thuật để message loop của OS/Chromium nhận diện trạng thái down
+        if hold_time > 0:
+            time.sleep(hold_time)
+
+        # 3. Nhả chuột lên (MouseUp)
+        ret_up = cls._send_input(up_flag)
+        if ret_up != 1:
+            return ClickResult(
+                success=False,
+                down_inserted=True,
+                up_inserted=False,
+                events_inserted=1,
+                error=f"SendInput một phần (partial failure): MouseDown thành công nhưng MouseUp ({button}) thất bại: mã trả về {ret_up}"
+            )
+
+        return ClickResult(
+            success=True,
+            down_inserted=True,
+            up_inserted=True,
+            events_inserted=2,
+            error=None
+        )
 
     @classmethod
     def click(
