@@ -22,11 +22,16 @@ class TestBehavioralEngine(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.persona_file = os.path.join(self.temp_dir.name, "test_personas.json")
         self.scenario_file = os.path.join(self.temp_dir.name, "test_scenarios.json")
+        import random
+        random.seed(42)
         self.persona_mgr = PersonaManager(self.persona_file)
         self.scenario_engine = ScenarioEngine(self.scenario_file)
 
     def tearDown(self):
-        self.temp_dir.cleanup()
+        try:
+            self.temp_dir.cleanup()
+        except Exception:
+            pass
 
     def test_persona_creation_and_persistence(self):
         """Kiểm tra khởi tạo Persona với nhân khẩu học và tính bất biến khi gọi lại."""

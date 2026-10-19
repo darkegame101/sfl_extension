@@ -23,12 +23,17 @@ from tasks.session_task_orchestrator import SessionTaskOrchestrator
 class TestScenarioEngineEvaluation(unittest.TestCase):
 
     def setUp(self):
+        import random
+        random.seed(42)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.storage_file = os.path.join(self.temp_dir.name, "test_dynamic_scenarios.json")
         self.engine = ScenarioEngine(self.storage_file)
 
     def tearDown(self):
-        self.temp_dir.cleanup()
+        try:
+            self.temp_dir.cleanup()
+        except Exception:
+            pass
 
     def test_alias_compatibility_fumble_and_distraction(self):
         """Kiểm tra alias giữa fumble_rate và miss_click_prob để không bị lỗi gãy tích hợp."""

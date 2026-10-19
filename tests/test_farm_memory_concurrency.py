@@ -36,7 +36,10 @@ class TestFarmMemoryConcurrency(unittest.TestCase):
         self.scenarios_file = os.path.join(self.temp_dir.name, "scenarios.json")
 
     def tearDown(self):
-        self.temp_dir.cleanup()
+        try:
+            self.temp_dir.cleanup()
+        except Exception:
+            pass
 
     def test_concurrent_instances_no_lost_updates(self):
         """

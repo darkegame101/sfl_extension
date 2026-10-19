@@ -197,14 +197,15 @@ class ScenarioEngine:
         """Khóa tiến trình chéo (Inter-process File Lock) dùng cờ O_CREAT | O_EXCL của hệ điều hành."""
         lock_file = f"{self.storage_file}.lock"
         start = time.time()
-        fd = None
+        acquired = False
         while time.time() - start < timeout:
             try:
                 fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_RDWR)
                 try:
                     os.write(fd, f"{os.getpid()}\n".encode("utf-8"))
-                except Exception:
-                    pass
+                finally:
+                    os.close(fd)
+                acquired = True
                 break
             except FileExistsError:
                 try:
@@ -226,22 +227,20 @@ class ScenarioEngine:
                 except Exception:
                     pass
                 time.sleep(0.04)
-        if fd is None:
+        if not acquired:
             raise TimeoutError(f"[ScenarioEngine Lock] Không thể chiếm quyền ghi file {lock_file} sau {timeout}s (Bị khóa bởi tiến trình khác)!")
 
         try:
             yield
         finally:
-            if fd is not None:
-                try:
-                    os.close(fd)
-                except Exception:
-                    pass
-                try:
-                    if os.path.exists(lock_file):
-                        os.remove(lock_file)
-                except Exception:
-                    pass
+            if acquired:
+                for _ in range(5):
+                    try:
+                        if os.path.exists(lock_file):
+                            os.remove(lock_file)
+                        break
+                    except Exception:
+                        time.sleep(0.02)
 
     def _save(self):
         """Ghi file an toàn nguyên tử (Atomic Write) kết hợp Process Lock và merge dữ liệu."""

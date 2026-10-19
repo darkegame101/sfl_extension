@@ -15,6 +15,10 @@ from core.human_mouse import HumanMouse
 
 class TestFittsLaw(unittest.TestCase):
 
+    def setUp(self):
+        import random
+        random.seed(42)
+
     def test_fitts_duration_monotonicity_distance(self):
         """Khoảng cách D càng lớn thì thời gian di chuyển MT phải tăng đơn điệu (Target width W cố định)."""
         w = 30.0

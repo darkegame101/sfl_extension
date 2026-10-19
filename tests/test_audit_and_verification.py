@@ -26,7 +26,10 @@ class TestAuditAndVerification(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
 
     def tearDown(self):
-        self.temp_dir.cleanup()
+        try:
+            self.temp_dir.cleanup()
+        except Exception:
+            pass
 
     def test_audit_log_generation(self):
         """Đảm bảo hàm _record_audit_log ghi đúng cấu trúc JSON Lines."""
