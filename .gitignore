@@ -12,6 +12,7 @@ node_modules/
 audit_trail.jsonl
 __pycache__/
 .DS_Store
+farm_memory.json
 # Environment & Secrets (Không commit API keys lên Git)
 .env
 .env.*

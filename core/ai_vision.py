@@ -41,6 +41,12 @@ class AIVision:
         - Fallback an toàn nếu môi trường không có màn hình ảo.
         """
         try:
+            from core.window_helper import WindowHelper
+            WindowHelper.ensure_interactive_desktop()
+        except Exception:
+            pass
+
+        try:
             from PIL import ImageGrab
             if region:
                 # bbox = (left, top, right, bottom)

@@ -5,7 +5,7 @@ import os
 import random
 import sys
 import time
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scheduler.persona_manager import PersonaManager
@@ -256,6 +256,43 @@ class FarmMemory:
             return True  # Lần đầu chạy, giả định cần thu hoạch dọn ruộng cũ
         ready_at = self.data[profile_id].get("ready_at", 0)
         return time.time() >= ready_at
+
+    def record_tree_chop(self, profile_id: str, recovery_seconds: int = 7200):
+        """Ghi nhận vừa chặt cây lấy gỗ, thời gian cây hồi phục trong game là 2 giờ (7200s)."""
+        now = time.time()
+        ready_time = now + recovery_seconds
+
+        def _update(data):
+            prof_data = data.setdefault(profile_id, {})
+            prof_data["trees_chopped_at"] = now
+            prof_data["trees_ready_at"] = ready_time
+
+        self._mutate(_update)
+
+    def is_tree_ready_for_chop(self, profile_id: str) -> bool:
+        """Kiểm tra cây gỗ của profile này đã hồi sinh sau 2 giờ chưa."""
+        if profile_id not in self.data:
+            return True
+        ready_at = self.data[profile_id].get("trees_ready_at", 0)
+        return time.time() >= ready_at
+
+    def save_checkpoint(self, profile_id: str, checkpoint_data: Dict[str, Any]):
+        """Lưu trữ Checkpoint phục hồi tác vụ (Memory for Goals) theo chuẩn nguyên tử."""
+        def _update(data):
+            prof = data.setdefault(profile_id, {})
+            prof["last_checkpoint"] = checkpoint_data
+        self._mutate(_update)
+
+    def get_checkpoint(self, profile_id: str) -> Optional[Dict[str, Any]]:
+        """Lấy Checkpoint gần nhất của profile nếu có."""
+        return self.data.get(profile_id, {}).get("last_checkpoint")
+
+    def clear_checkpoint(self, profile_id: str):
+        """Xóa Checkpoint sau khi phiên làm việc đã hoàn thành trọn vẹn."""
+        def _update(data):
+            if profile_id in data and "last_checkpoint" in data[profile_id]:
+                del data[profile_id]["last_checkpoint"]
+        self._mutate(_update)
 
     def get_time_until_next_ready(self, profile_id: str, profile_name: str = "") -> float:
         """

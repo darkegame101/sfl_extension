@@ -75,11 +75,20 @@ graph TD
   - Enforces schema validation and bounding-box sanitation (`validate_and_sanitize`) to discard hallucinatory or out-of-bounds coordinates.
 * **`local_vision_engine.py` (`LocalVisionEngine`)**:
   - Fast, offline template matching and heuristic pixel inspection when cloud AI vision is unavailable or rate-limited.
+* **`evidence_engine.py` (`EvidenceFuser`, `TaskVerifier`) [Branch 1]**:
+  - **POMDP Belief State (Kurniawati 2022)**: Models environmental state as a probability distribution over plot states (`GROWING`, `READY`, `EMPTY`, `UNKNOWN`, `BLOCKED`) with calibrated confidence scores.
+  - **Bayesian Multi-Source Fusion**: Combines local heuristic computer vision (HSV/OpenCV) with VLM perception (Claude Haiku 5.5), applying conflict penalties when sources disagree.
+  - **Explicit Abstention Policy**: Automatically halts automation (abstains from acting) when visual uncertainty exceeds 50%, or when CAPTCHA / game syncing indicators are detected.
+  - **OSWorld Verifiable Predicates (Xie et al., NeurIPS 2024)**: Evaluates strict post-conditions for harvest (`ready_count` reduction) and planting (`empty_count == 0 and growing_count > 0`), classifying outcomes into `VERIFIED_SUCCESS`, `VERIFIED_PARTIAL`, `VERIFIED_FAILED`, or `ABSTAIN_UNCERTAIN`.
 
 ### Scheduler & Behavioral Engine (`scheduler/`)
 * **`persona_manager.py` (`PersonaManager`)**:
   - Maintains persistent human identities (33 Vietnamese personas across diverse demographics, jobs, ages 19–45, and temperament profiles).
   - Persists attributes atomically to `personas.json`.
+* **`goal_tracker.py` (`GoalTracker`, `TaskResumptionManager`) [Branch 2]**:
+  - **ACT-R Cognitive Goal Hierarchy (Ritter et al., WIREs 2019)**: Establishes explicit goal decomposition (`MacroGoal` -> `SubGoalType` stack -> operators) cleanly decoupling perception, decision-making, and motor execution.
+  - **Problem State Bottleneck & Task Interruption (Borst et al., CHI 2015)**: Serializes persistent `TaskCheckpoint` problem states before context switches, browser crashes, or timeouts.
+  - **Discrepancy-Based Resumption (Trafton & Altmann 2003 Memory for Goals)**: Reconciles interrupted checkpoints with observed `EnvironmentBeliefState` upon session restart, resuming partial harvests or planting only empty plots without blind restarts.
 * **`scenario_engine.py` (`ScenarioEngine`)**:
   - Generates daily narrative scenarios (Office Routine, WFH Marathon, Overtime Rush, Detox Day).
   - Implements time-slot clustering: sessions are grouped into realistic human windows (before work 06:45–08:15, lunch break 11:45–13:15, evening prime time 19:45–23:15) with hard lockout during work hours.
@@ -87,7 +96,7 @@ graph TD
   - Dynamically calculates remaining free time until the next scheduled window.
   - Chooses crop maturity times matching the player's schedule (e.g., Sunflower for active play, Parsnip/Wheat for overnight sleep).
 * **`farm_memory.py` (`FarmMemory`)**:
-  - Tracks plot growth states, harvest cycles, and human forgetfulness latency (deliberate delays before harvesting).
+  - Tracks plot growth states, harvest cycles, human forgetfulness latency, and atomic persistence of task checkpoints (`save_checkpoint`, `get_checkpoint`, `clear_checkpoint`).
 * **`queue_manager.py` (`QueueManager`)**:
   - Controls sequential profile execution, inter-profile relaxation delays, circadian nighttime sleep windows, and periodic coffee breaks.
 

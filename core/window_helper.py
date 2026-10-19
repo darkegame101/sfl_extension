@@ -33,9 +33,27 @@ class WindowHelper:
     """
 
     @staticmethod
-    def find_windows_by_keyword(keyword: str) -> List[int]:
+    def ensure_interactive_desktop():
+        """
+        Đảm bảo thread hiện tại đính kèm vào desktop tương tác 'default' của Windows (WinSta0\\default).
+        Cần thiết khi chạy từ terminal con, IDE sandbox hoặc background service.
+        """
+        try:
+            hdesk = user32.OpenDesktopW("default", 0, False, 0x01FF)
+            if hdesk:
+                user32.SetThreadDesktop(hdesk)
+                return hdesk
+        except Exception:
+            pass
+        return None
+
+    @classmethod
+    def find_windows_by_keyword(cls, keyword: str) -> List[int]:
         """Tìm danh sách HWND các cửa sổ có tiêu đề chứa keyword."""
+        hdesk = cls.ensure_interactive_desktop()
         hwnds = []
+
+        from ctypes import wintypes
 
         def enum_proc(hwnd, lParam):
             if user32.IsWindowVisible(hwnd):
@@ -47,20 +65,66 @@ class WindowHelper:
                         hwnds.append(hwnd)
             return True
 
-        from ctypes import wintypes
-        ENUM_FUNC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
-        user32.EnumWindows(ENUM_FUNC(enum_proc), 0)
+        ENUM_FUNC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        if hdesk:
+            user32.EnumDesktopWindows.argtypes = [wintypes.HANDLE, ENUM_FUNC, wintypes.LPARAM]
+            user32.EnumDesktopWindows.restype = wintypes.BOOL
+            user32.EnumDesktopWindows(hdesk, ENUM_FUNC(enum_proc), 0)
+        else:
+            user32.EnumWindows.argtypes = [ENUM_FUNC, wintypes.LPARAM]
+            user32.EnumWindows.restype = wintypes.BOOL
+            user32.EnumWindows(ENUM_FUNC(enum_proc), 0)
         return hwnds
 
     @classmethod
-    def find_game_window(cls, preferred_title: str = "") -> Optional[int]:
+    def find_windows_by_pid(cls, target_pid: int) -> List[int]:
+        """Tìm HWND các cửa sổ hiển thị thuộc Process ID cụ thể."""
+        if not target_pid:
+            return []
+        hdesk = cls.ensure_interactive_desktop()
+        hwnds = []
+        from ctypes import wintypes
+
+        def enum_proc(hwnd, lParam):
+            if user32.IsWindowVisible(hwnd):
+                proc_id = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(proc_id))
+                if proc_id.value == target_pid:
+                    rect = RECT()
+                    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+                    w = rect.right - rect.left
+                    h = rect.bottom - rect.top
+                    # Lọc bỏ các cửa sổ phụ/vô hình (kích thước quá nhỏ)
+                    if w > 100 and h > 100:
+                        hwnds.append(hwnd)
+            return True
+
+        ENUM_FUNC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        if hdesk:
+            user32.EnumDesktopWindows.argtypes = [wintypes.HANDLE, ENUM_FUNC, wintypes.LPARAM]
+            user32.EnumDesktopWindows.restype = wintypes.BOOL
+            user32.EnumDesktopWindows(hdesk, ENUM_FUNC(enum_proc), 0)
+        else:
+            user32.EnumWindows.argtypes = [ENUM_FUNC, wintypes.LPARAM]
+            user32.EnumWindows.restype = wintypes.BOOL
+            user32.EnumWindows(ENUM_FUNC(enum_proc), 0)
+        return hwnds
+
+    @classmethod
+    def find_game_window(cls, preferred_title: str = "", target_pid: Optional[int] = None) -> Optional[int]:
         """
         Tìm cửa sổ đang chạy Sunflower Land hoặc trình duyệt GPM Chromium:
+        - Ưu tiên 0: Tìm theo target_pid chính xác của tiến trình Chromium (nếu có).
         - Ưu tiên 1: Cửa sổ chứa preferred_title (Tên Profile GPM cụ thể).
         - Ưu tiên 2: Cửa sổ có tiêu đề 'Sunflower Land' / 'sunflower-land'.
         - Ưu tiên 3: Cửa sổ GPM Chromium.
         - Tránh nhận nhầm Chrome cá nhân thông thường.
         """
+        if target_pid:
+            pid_hwnds = cls.find_windows_by_pid(target_pid)
+            if pid_hwnds:
+                return pid_hwnds[0]
+
         if preferred_title:
             hwnds = cls.find_windows_by_keyword(preferred_title)
             if hwnds:
@@ -73,7 +137,7 @@ class WindowHelper:
                 return hwnds[0]
 
         # Tìm cửa sổ GPM Browser
-        for kw in ["GPM", "gpm_browser"]:
+        for kw in ["GPM-Browser", "GPM Browser", "GPM", "gpm_browser"]:
             hwnds = cls.find_windows_by_keyword(kw)
             if hwnds:
                 return hwnds[0]
@@ -95,12 +159,13 @@ class WindowHelper:
             return buff.value
         return ""
 
-    @staticmethod
-    def bring_to_foreground(hwnd: int) -> bool:
+    @classmethod
+    def bring_to_foreground(cls, hwnd: int) -> bool:
         """Đưa cửa sổ lên trước màn hình, focus và xác thực Windows đã thực sự focus."""
         if not hwnd or not user32.IsWindow(hwnd):
             return False
 
+        cls.ensure_interactive_desktop()
         import time
 
         # Nếu cửa sổ đang bị thu nhỏ (minimized), khôi phục lại
@@ -128,12 +193,13 @@ class WindowHelper:
 
         return user32.IsWindowVisible(hwnd) != 0
 
-    @staticmethod
-    def get_client_rect_on_screen(hwnd: int) -> Tuple[int, int, int, int]:
+    @classmethod
+    def get_client_rect_on_screen(cls, hwnd: int) -> Tuple[int, int, int, int]:
         """
         Lấy tọa độ vùng hiển thị nội dung web (Client Area) trên màn hình:
         Trả về (client_x, client_y, client_width, client_height).
         """
+        cls.ensure_interactive_desktop()
         rect = RECT()
         user32.GetClientRect(hwnd, ctypes.byref(rect))
 

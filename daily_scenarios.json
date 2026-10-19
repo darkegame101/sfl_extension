@@ -47,5 +47,86 @@
       ],
       "created_at": 1791999717.921482
     }
+  },
+  "19f4ff1b-d3a7-42c9-bdb9-7d685dbacfcf": {
+    "date": "2026-10-20",
+    "profile_name": "3.Nguyen xuan son",
+    "scenario": {
+      "archetype_name": "Ngày đi làm công sở tiêu chuẩn (Office Routine)",
+      "category": "OFFICE_STANDARD",
+      "real_name": "Đặng Gia Bảo",
+      "job": "Mẹ bỉm sữa kinh doanh Online",
+      "age": 33,
+      "today_mood": "Điềm đạm & Giữ nhịp",
+      "daily_narrative": "Đặng Gia Bảo (33 tuổi, Mẹ bỉm sữa kinh doanh Online): Ngày làm việc 8 tiếng bình thường tại văn phòng. Sáng tranh thủ ăn sáng mở 1 lượt, trưa ăn cơm xong nghỉ ngơi mở 1 lượt, tối về nhà sau khi ăn cơm tắm rửa mới ngồi chơi thong thả.",
+      "daily_session_cap": 7,
+      "today_slots": [
+        {
+          "name": "Sáng ăn sáng trước khi đi làm",
+          "start": 6.54,
+          "end": 7.87,
+          "reason": "Vừa ăn sáng uống cà phê vừa ngó farm"
+        },
+        {
+          "name": "Nghỉ trưa tại văn phòng",
+          "start": 11.58,
+          "end": 13.27,
+          "reason": "Ăn cơm trưa xong có 45 phút nghỉ ngơi"
+        },
+        {
+          "name": "Tan tầm vừa về tới nhà",
+          "start": 17.2,
+          "end": 18.51,
+          "reason": "Đi làm về nghỉ chân uống nước"
+        },
+        {
+          "name": "Buổi tối thư giãn Prime Time",
+          "start": 19.7,
+          "end": 22.86,
+          "reason": "Tối rảnh rỗi lướt web chơi game"
+        }
+      ],
+      "forgetting_scale": 1.0,
+      "speed_multiplier": 1.0,
+      "fumble_rate": 0.05,
+      "miss_click_prob": 0.05,
+      "distraction_prob": 0.12,
+      "distract_rate": 0.12,
+      "daily_distractions": [
+        "Có tin nhắn Zalo/Telegram công việc từ đồng nghiệp cần trả lời gấp",
+        "Mẹ ở quê gọi điện thoại hỏi thăm sức khỏe cuối tuần"
+      ],
+      "created_at": 1792430124.792898,
+      "episodic_stream": [
+        {
+          "timestamp": 1792431105.334898,
+          "iso_time": "00:31:45",
+          "event_type": "SESSION_COMPLETED",
+          "details": {
+            "tasks_executed": [
+              "CROPS"
+            ],
+            "verification_status": "VERIFIED_PARTIAL"
+          }
+        }
+      ],
+      "intra_day_state": {
+        "sessions_completed": 1,
+        "accumulated_fatigue": 0.08,
+        "vigilance_level": 1.0,
+        "last_event_time": 1792431105.334898,
+        "current_mood": "Điềm đạm & Giữ nhịp"
+      },
+      "effective_speed_multiplier": 1.0,
+      "effective_fumble_rate": 0.05,
+      "effective_miss_click_prob": 0.05,
+      "effective_distraction_prob": 0.12,
+      "effective_distract_rate": 0.12,
+      "vigilance_level": 1.0,
+      "accumulated_fatigue": 0.0,
+      "current_mood": "Điềm đạm & Giữ nhịp",
+      "sessions_completed": 0,
+      "speed_mult": 1.4580000000000002
+    }
   }
 }

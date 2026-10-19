@@ -77,6 +77,17 @@ graph TD
   - *Nán lại sau khi hoàn thành (`HumanMouse.post_farming_linger`)*: Gieo xong hạt cuối cùng không bao giờ tắt tab ngay trong 0.1s; nán lại treo tab nhìn ruộng, rê chuột ngắm farm 8 – 25 giây rồi mới đóng an toàn!
 - **Độ trễ quên tự nhiên (`scheduler/farm_memory.py`)**: Người chơi không bao giờ ngồi canh đúng từng giây để hái, luôn có độ trễ ngẫu nhiên (3 – 15 phút, đôi khi quên 1–2 tiếng).
 
+### 6. Hai Nhánh Nghiên cứu Khoa học Độc lập Song hành (Dual-Branch Scientific Architecture)
+- **Nhánh 1: Quyết định dựa trên Bằng chứng & Hậu kiểm Vòng kín (`core/evidence_engine.py`)**:
+  - *Mô hình Trạng thái Niềm tin POMDP (Kurniawati 2022)*: Biểu diễn trạng thái ô đất dưới dạng phân phối xác suất (`GROWING`, `READY`, `EMPTY`, `UNKNOWN`) kèm độ tin cậy được hiệu chuẩn.
+  - *Hợp nhất Quan sát Đa nguồn (Bayesian Multi-Source Fusion)*: Dung hợp dữ liệu giữa LocalVision (OpenCV/HSV) và Claude VLM; tự động phạt độ tin cậy khi 2 nguồn bất đồng.
+  - *Chính sách Từ chối Hành động (Abstention Policy)*: Tự động dừng tác vụ khi tỷ lệ không chắc chắn > 50%, khi gặp Captcha hoặc game đang đồng bộ (Syncing).
+  - *Bộ Thẩm định Vị từ OSWorld (Xie et al., NeurIPS 2024)*: Đánh giá tiền/hậu điều kiện thực tế (ví dụ: `ready_plots` giảm, `growing_plots` tăng) để phân loại kết quả thành `VERIFIED_SUCCESS`, `VERIFIED_PARTIAL`, `VERIFIED_FAILED`, hoặc `ABSTAIN_UNCERTAIN`.
+- **Nhánh 2: Quản trị Mục tiêu Nhận thức & Phục hồi sau Gián đoạn (`scheduler/goal_tracker.py`)**:
+  - *Cây Phân cấp Mục tiêu ACT-R (Ritter et al., WIREs 2019)*: Tách biệt rõ ràng giữa Nhận thức (Perception) $\rightarrow$ Quyết định (Decision) $\rightarrow$ Thao tác Vận động (Action) qua danh sách `SubGoal`.
+  - *Nút thắt Trạng thái Bài toán (Problem State Bottleneck, Borst et al., CHI 2015)*: Lưu trữ `TaskCheckpoint` trước khi chuyển profile hoặc khi bị gián đoạn ngoài ý muốn.
+  - *Phục hồi theo Đối chiếu Bằng chứng (Memory for Goals, Trafton & Altmann 2003)*: Khi mở lại profile, đối chiếu Checkpoint với `EnvironmentBeliefState` thực tế để gieo tiếp các ô còn trống hoặc hái nốt các ô còn chín, loại bỏ việc restart mù quáng từ đầu.
+
 ---
 
 ## 📁 CẤU TRÚC DỰ ÁN
@@ -94,13 +105,15 @@ f:\sfland auto/
 │   ├── gpm_api.py            # Kết nối GPM-Login Local API v2 (127.0.0.1:19995) & CDP WebSocket
 │   ├── window_helper.py      # Tìm HWND, đưa cửa sổ lên Foreground, tọa độ Client
 │   ├── ai_vision.py          # Thị giác Claude Haiku 5.5 chụp màn hình phân tích JSON
-│   └── local_vision_engine.py # Thị giác cục bộ OpenCV/heuristic fallback
+│   ├── local_vision_engine.py # Thị giác cục bộ OpenCV/heuristic fallback
+│   └── evidence_engine.py    # [Nhánh 1] Trạng thái niềm tin POMDP & Hậu kiểm đóng vòng lặp OSWorld
 ├── scheduler/
 │   ├── persona_manager.py    # Quản lý 33 Danh tính Người thật (Tên, Tuổi, Nghề, Tính khí)
 │   ├── scenario_engine.py    # Kịch bản Bối cảnh Đời sống & Cụm Giờ Sinh Hoạt (Time-Slots)
 │   ├── crop_selector.py      # Bộ lựa chọn hạt giống thích ứng sinh học theo quỹ thời gian
 │   ├── farm_memory.py        # Bộ nhớ chu kỳ cây, tính độ trễ quên và atomic locked persistence
-│   └── queue_manager.py      # Lịch trình ngủ đêm sinh học, Coffee breaks & Báo cáo
+│   ├── queue_manager.py      # Lịch trình ngủ đêm sinh học, Coffee breaks & Báo cáo
+│   └── goal_tracker.py       # [Nhánh 2] Mục tiêu nhận thức ACT-R & Phục hồi sau gián đoạn Memory for Goals
 ├── tasks/
 │   ├── captcha_guard.py      # Lá chắn Captcha phản xạ 0.01s & hú còi báo động
 │   ├── crop_manager.py       # Quản lý thu hoạch & gieo hạt (Shuffle, Nhịp thở Sync, Miss-click)
@@ -108,14 +121,16 @@ f:\sfland auto/
 │   └── session_task_orchestrator.py # Điều phối đa nhiệm & Xác suất bỏ sót theo thị giác con người
 ├── scripts/
 │   └── scan_secrets.py       # Công cụ quét secret & credential tự động (Rule F)
-├── tests/                    # Bộ kiểm thử tự động (Unit & Live Tests)
+├── tests/                    # Bộ kiểm thử tự động (65 Unit & Live Tests)
 │   ├── test_gpm_api.py       # Kiểm thử GpmAPI (Mock HTTP & Live local API)
 │   ├── test_ai_validation.py # Kiểm thử schema & bounds checking AI Vision
 │   ├── test_behavioral_engine.py # Kiểm thử Persona & kịch bản sinh hoạt
 │   ├── test_scenario_engine_evaluation.py # Đánh giá định lượng 6 Archetypes & Fatigue
 │   ├── test_fitts_law.py     # Kiểm chứng vận động học chuột theo Fitts' Law
 │   ├── test_audit_and_verification.py # Kiểm thử hậu kiểm closed-loop, perception fail-safe & decoupled status
-│   └── test_farm_memory_concurrency.py # Kiểm định đa tiến trình, PID stale-lock & secret hygiene
+│   ├── test_farm_memory_concurrency.py # Kiểm định đa tiến trình, PID stale-lock & secret hygiene
+│   ├── test_evidence_engine.py # [Nhánh 1] Kiểm định POMDP Belief, Conflict Penalty & OSWorld predicates
+│   └── test_goal_tracker.py  # [Nhánh 2] Kiểm định ACT-R Goal stack & Memory for Goals Resumption
 ├── run.py                    # BỘ ĐIỀU PHỐI TRUNG TÂM (MASTER RUNNER CLI)
 ├── gpm_ui.py                 # GIAO DIỆN WEB ĐIỀU KHIỂN & TEST CENTER GPM (Port 18888)
 ├── requirements.txt          # Khai báo phụ thuộc môi trường chạy thực tế
@@ -178,7 +193,11 @@ pip install -r requirements.txt
 
 #### A. Chạy Master Runner (CLI):
 ```powershell
+# Chạy vòng lặp tự động đa profile theo hàng đợi sinh học
 python run.py
+
+# Hoặc chạy thử nghiệm ngay 1 profile cụ thể (theo tên hoặc ID)
+python run.py --profile "3.Nguyen xuan son"
 ```
 
 #### B. Mở Web Dashboard Điều khiển & Test Center GPM:

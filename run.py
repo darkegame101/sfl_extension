@@ -18,11 +18,13 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
+from dataclasses import asdict
 from core.gpm_api import GpmAPI
 from core.human_mouse import HumanMouse
 from core.window_helper import WindowHelper
 from core.ai_vision import AIVision
 from core.local_vision_engine import LocalVisionEngine
+from core.evidence_engine import EvidenceFuser, EnvironmentBeliefState, TaskVerifier, PlotStateEnum, VerificationStatus
 from tasks.captcha_guard import CaptchaGuard
 from tasks.crop_manager import CropManager
 from tasks.mushroom_hunter import MushroomHunter
@@ -31,6 +33,7 @@ from tasks.session_task_orchestrator import SessionTaskOrchestrator
 from scheduler.farm_memory import FarmMemory
 from scheduler.queue_manager import QueueManager
 from scheduler.crop_selector import SmartCropSelector
+from scheduler.goal_tracker import GoalTracker, SubGoalType, GoalStatus, TaskResumptionManager
 
 
 class MasterRunner:
@@ -38,7 +41,24 @@ class MasterRunner:
     Bộ điều phối trung tâm kết nối toàn bộ 4 hệ thống thành một chu trình khép kín.
     """
 
+    @staticmethod
+    def _load_env_file(filepath: str = ".env"):
+        """Nạp biến môi trường từ file .env cục bộ nếu có."""
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k, v = k.strip(), v.strip()
+                            if k and k not in os.environ:
+                                os.environ[k] = v
+            except Exception:
+                pass
+
     def __init__(self, config_path: str = "config.json"):
+        self._load_env_file()
         self.config = self._load_config(config_path)
 
         # 1. Khởi tạo các module
@@ -49,10 +69,12 @@ class MasterRunner:
         ai_cfg = self.config.get("ai_vision", {})
         self.ai_enabled = ai_cfg.get("enabled", False)
         api_key = os.environ.get("AI_VISION_API_KEY") or os.environ.get("BEEKNOEE_API_KEY") or ai_cfg.get("api_key", "")
+        base_url = os.environ.get("BEEKNOEE_BASE_URL") or ai_cfg.get("base_url", "https://platform.beeknoee.com/v1")
+        model_id = os.environ.get("BEEKNOEE_MODEL_ID") or ai_cfg.get("model_id", "bee-tok/claude-haiku-5-5")
         self.ai = AIVision(
             api_key=api_key,
-            base_url=ai_cfg.get("base_url", "https://api.openai.com/v1"),
-            model_id=ai_cfg.get("model_id", "bee-tok/claude-haiku-5-5")
+            base_url=base_url,
+            model_id=model_id
         )
 
         self.memory = FarmMemory(ai_client=self.ai if self.ai_enabled else None)
@@ -197,6 +219,13 @@ class MasterRunner:
         print(f" -> Tiến độ hôm nay: {cur_sessions}/{cap} phiên")
         print("=" * 75)
 
+        # Khởi tạo Branch 2: Quản lý mục tiêu nhận thức theo kiến trúc ACT-R & Memory for Goals
+        goal_tracker = GoalTracker(profile_id=pid, macro_goal="FARM_MAINTENANCE_CYCLE")
+        goal_tracker.build_goals_from_plan(session_plan["tasks_to_execute"], total_plots=len(self.plot_coords))
+        saved_checkpoint = self.memory.get_checkpoint(pid)
+        if saved_checkpoint:
+            print(f"[Memory for Goals] Phát hiện Checkpoint gián đoạn từ phiên trước: SubGoal='{saved_checkpoint.get('active_subgoal')}'")
+
         # 1. Khởi động Profile qua GPM Local API
         start_res = self.gpm.start_profile(pid)
         if not start_res.get("success") and "data" not in start_res:
@@ -207,6 +236,30 @@ class MasterRunner:
 
         # BỌC TOÀN BỘ PHIÊN TRONG TRY...FINALLY ĐỂ ĐẢM BẢO LUÔN ĐÓNG PROFILE
         try:
+            debug_addr = start_res.get("selenium_remote_debug_address")
+            debug_port = start_res.get("remote_debug_port")
+            browser_pid = start_res.get("process_id")
+
+            # 1b. Dò Process ID của trình duyệt nếu chưa có
+            if debug_port and not browser_pid:
+                for _ in range(6):
+                    browser_pid = self.gpm.find_pid_by_port(debug_port)
+                    if browser_pid:
+                        break
+                    time.sleep(0.5)
+
+            # 1c. Kiểm tra và tự động điều hướng sang Sunflower Land qua CDP nếu chưa mở
+            if debug_addr:
+                try:
+                    tabs = self.gpm.get_cdp_tabs(debug_addr)
+                    page_tabs = [t for t in tabs if t.get("type") == "page"]
+                    has_sfl = any("sunflower-land.com" in (t.get("url") or "") for t in page_tabs)
+                    if not has_sfl:
+                        print(f"[Runner] Chưa mở Sunflower Land trên tab active, đang điều hướng CDP tới https://sunflower-land.com/play/...")
+                        self.gpm.cdp_navigate(debug_addr, "https://sunflower-land.com/play/")
+                except Exception as cdp_err:
+                    print(f"[Runner Warning] Không thể kiểm tra tab qua CDP: {cdp_err}")
+
             # 2. Chờ game tải (Game Loading Delay có tính đến độ vội vã/chậm rãi)
             load_wait = random.uniform(12, 16) * fatigue_mult
             print(f"[Runner] {scenario['real_name']} đang chờ trình duyệt tải trang game Sunflower Land ({load_wait:.1f}s)...")
@@ -214,8 +267,8 @@ class MasterRunner:
 
             # 3. Tìm cửa sổ và đưa lên Foreground với cơ chế thử lại (Retry)
             hwnd = None
-            for attempt in range(3):
-                hwnd = WindowHelper.find_game_window(preferred_title=pname)
+            for attempt in range(5):
+                hwnd = WindowHelper.find_game_window(preferred_title=pname, target_pid=browser_pid)
                 if hwnd:
                     break
                 time.sleep(1.0)
@@ -231,6 +284,9 @@ class MasterRunner:
 
             # 4. Giai đoạn Warm-up ngắm nghía người thật theo phong cách cá nhân
             cur_x, cur_y = HumanMouse.get_position()
+            if cur_x <= 0 and cur_y <= 0:
+                cx, cy, cw, ch = WindowHelper.get_client_rect_on_screen(hwnd)
+                cur_x, cur_y = cx + cw // 2, cy + ch // 2
             HumanMouse.move_to(
                 cur_x + random.randint(-40, 40),
                 cur_y + random.randint(-30, 30),
@@ -239,7 +295,26 @@ class MasterRunner:
             )
             HumanMouse.human_sleep(2.0, 4.0)
 
-            # 5. Phân tích AI Vision (nếu bật cấu hình)
+            # 5. Phân tích Thị giác & Trạng thái Niềm tin POMDP (Branch 1)
+            screenshot = None
+            if self.ai:
+                screenshot = self.ai.capture_screenshot()
+            elif AIVision:
+                screenshot = AIVision.capture_screenshot()
+
+            if not screenshot:
+                print("[Runner Alert] Lỗi thị giác: Không thể chụp màn hình hiện tại! Dừng tác vụ để tránh click mù.")
+                session_status = "ABORTED_PERCEPTION_FAILURE"
+                verification["status"] = "VERIFICATION_SKIPPED_NO_SCREENSHOT"
+                verification["details"].append("Perception failed: capture_screenshot returned None before starting actions")
+                return
+
+            cx, cy, cw, ch = WindowHelper.get_client_rect_on_screen(hwnd)
+            local_plots_obs = []
+            if self.plot_coords and cw > 0 and ch > 0:
+                for (rel_x, rel_y) in self.plot_coords:
+                    local_plots_obs.append(LocalVisionEngine.analyze_plot_state(screenshot, cx + rel_x, cy + rel_y))
+
             analysis = {}
             if self.ai_enabled:
                 if not self.ai.api_key:
@@ -250,14 +325,6 @@ class MasterRunner:
                     return
 
                 print("[Runner] Đang chụp màn hình gửi Claude Haiku 5.5 phân tích...")
-                screenshot = self.ai.capture_screenshot()
-                if not screenshot:
-                    print("[Runner Alert] Lỗi thị giác: Không thể chụp màn hình hiện tại! Dừng tác vụ để tránh click mù.")
-                    session_status = "ABORTED_PERCEPTION_FAILURE"
-                    verification["status"] = "VERIFICATION_SKIPPED_NO_SCREENSHOT"
-                    verification["details"].append("Perception failed: capture_screenshot returned None before starting actions")
-                    return
-
                 analysis = self.ai.analyze_screen(screenshot)
                 if not isinstance(analysis, dict) or not analysis.get("success"):
                     err_reason = analysis.get("error", "No response") if isinstance(analysis, dict) else "Analysis failed"
@@ -266,11 +333,21 @@ class MasterRunner:
                     verification["status"] = "VERIFICATION_SKIPPED_PERCEPTION_ERROR"
                     verification["details"].append(f"AI Vision analysis failed: {err_reason}")
                     return
-
                 print(f"[Runner] AI phản hồi trong {analysis.get('latency')}s: {analysis}")
 
-                # Kiểm tra Captcha có thẩm định lại sau giải
-                if CaptchaGuard.check_and_guard(analysis):
+            # Hợp nhất bằng chứng đa nguồn thành Trạng thái Niềm tin POMDP (Branch 1)
+            pre_belief = EvidenceFuser.build_environment_belief(
+                timestamp=time.time(),
+                plot_coords=self.plot_coords,
+                local_plots_analysis=local_plots_obs,
+                vlm_analysis=analysis
+            )
+            print(f"[POMDP Belief State] Tin cậy: {pre_belief.overall_confidence:.2f} | Ô chín: {pre_belief.ready_plots_count} | Ô trống: {pre_belief.empty_plots_count} | Đang lớn: {pre_belief.growing_plots_count} | Chưa rõ: {pre_belief.unknown_plots_count}")
+
+            # Chính sách từ chối hành động (Abstention Policy - Kurniawati 2022)
+            if pre_belief.abstention_triggered:
+                print(f"[POMDP Abstention] Kích hoạt chính sách từ chối hành động: {pre_belief.abstention_reason}")
+                if pre_belief.has_captcha:
                     session_status = "CAPTCHA_PAUSED"
                     self.memory.scenario_engine.register_event_feedback(pid, "CAPTCHA_ALERT", {"analysis": analysis})
                     input("Nhấn Enter sau khi bạn đã giải Captcha xong trên trình duyệt...")
@@ -279,49 +356,51 @@ class MasterRunner:
                         print("[Runner Guard] Captcha vẫn chưa được giải an toàn. Hủy phiên để bảo vệ tài khoản!")
                         return
                     self.memory.scenario_engine.register_event_feedback(pid, "CAPTCHA_RESOLVED")
-
-                # Kiểm tra Popup che màn hình (thực hiện độc lập, không phụ thuộc vào Captcha)
-                if analysis.get("has_blocking_popup") and analysis.get("popup_close_button"):
-                    btn_x, btn_y = analysis["popup_close_button"]
-                    print(f"[Runner] Phát hiện Popup che, đang bấm tắt tại ({btn_x}, {btn_y})...")
-                    HumanMouse.click(btn_x, btn_y, random_offset=persona["jitter_px"])
-                    HumanMouse.human_sleep(1.0, 1.8)
-
-                # Kiểm tra vòng xoay đồng bộ Syncing...
-                if analysis.get("is_syncing"):
-                    print("[Runner Perception] Phát hiện game đang đồng bộ dữ liệu (Syncing...), chờ 2.5s...")
+                elif pre_belief.is_syncing:
+                    print("[Runner Perception] Game đang đồng bộ dữ liệu (Syncing...), chờ 2.5s...")
                     time.sleep(2.5)
 
-                # Sử dụng plots_summary từ AI
-                ai_plots = analysis.get("plots_summary", {})
-                if ai_plots.get("has_ready_crops"):
-                    print("[Runner Perception] AI thị giác phát hiện cây đã chín trên các ô đất!")
-                if ai_plots.get("has_empty_plots"):
-                    print("[Runner Perception] AI thị giác phát hiện có ô đất trống chưa gieo hạt!")
+            # Xử lý Popup che màn hình nếu có
+            if pre_belief.has_blocking_popup and pre_belief.popup_close_button:
+                btn_x, btn_y = pre_belief.popup_close_button
+                print(f"[Runner] Phát hiện Popup che, đang bấm tắt tại ({btn_x}, {btn_y})...")
+                HumanMouse.click(btn_x, btn_y, random_offset=persona["jitter_px"])
+                HumanMouse.human_sleep(1.0, 1.8)
 
-                # Kiểm tra Nấm (Chỉ nhặt nếu phiên này người chơi chú ý nhìn thấy)
-                if analysis.get("has_mushrooms") and analysis.get("mushroom_positions"):
-                    if "MUSHROOMS" in session_plan["tasks_to_execute"]:
-                        mushrooms = analysis["mushroom_positions"]
-                        MushroomHunter.harvest_mushrooms(hwnd, mushrooms, is_screen_coords=True)
-                    else:
-                        print("[Tâm lý thị giác] Nấm mọc ở bãi cỏ rìa ngoài xa tầm mắt, phiên này người chơi vội vàng nên bỏ sót!")
+            # Thu nhặt nấm dại nếu có
+            if pre_belief.has_mushrooms and pre_belief.mushroom_positions:
+                if "MUSHROOMS" in session_plan["tasks_to_execute"]:
+                    MushroomHunter.harvest_mushrooms(hwnd, pre_belief.mushroom_positions, is_screen_coords=True)
+
+            # Đối chiếu Phục hồi Tác vụ sau Gián đoạn (Branch 2 Memory for Goals)
+            resumption_plan = TaskResumptionManager.reconcile_interrupted_session(saved_checkpoint, pre_belief)
+            if resumption_plan.get("resumption_mode") != "FRESH_START":
+                print(f"[Memory for Goals] {resumption_plan['rationale']}")
 
             # 6. THỰC THI TÁC VỤ RUỘNG ĐẤT THỰC TẾ TRONG GAME (HARVEST & PLANT)
             if "CROPS" in session_plan["tasks_to_execute"]:
-                ai_plots = analysis.get("plots_summary", {})
-                ai_detected_ready = ai_plots.get("has_ready_crops", False)
-                ai_detected_empty = ai_plots.get("has_empty_plots", False)
-                crops_need_harvest = self.memory.is_crop_ready_for_harvest(pid) or ai_detected_ready
+                crops_need_harvest = (
+                    self.memory.is_crop_ready_for_harvest(pid) or
+                    pre_belief.ready_plots_count > 0 or
+                    resumption_plan.get("resumption_mode") == "RESUME_PARTIAL_HARVEST"
+                )
 
-                # A. Thu hoạch cây chín nếu đã đến giờ hoặc AI nhìn thấy cây chín
+                # A. Thu hoạch cây chín
                 if crops_need_harvest:
-                    print(f"[Runner] Tiến hành thu hoạch {len(self.plot_coords)} ô đất (MemoryReady={self.memory.is_crop_ready_for_harvest(pid)}, AI_Ready={ai_detected_ready})...")
-                    self.crop_mgr.harvest_plots(hwnd, self.plot_coords, scenario=scenario)
+                    goal_tracker.start_subgoal(SubGoalType.HARVEST_CROPS)
+                    harvest_plots = self.plot_coords
+                    if resumption_plan.get("resumption_mode") == "RESUME_PARTIAL_HARVEST" and resumption_plan.get("target_plots"):
+                        harvest_plots = [self.plot_coords[i] for i in resumption_plan["target_plots"] if i < len(self.plot_coords)]
+
+                    print(f"[Runner] Tiến hành thu hoạch {len(harvest_plots)} ô đất (BeliefReady={pre_belief.ready_plots_count})...")
+                    self.crop_mgr.harvest_plots(hwnd, harvest_plots, scenario=scenario)
+                    goal_tracker.complete_subgoal(SubGoalType.HARVEST_CROPS)
+                    self.memory.save_checkpoint(pid, asdict(goal_tracker.create_checkpoint(last_action="HARVEST_CROPS")))
                 else:
                     print(f"[Runner] Cây trồng chưa đến giờ chín, bỏ qua bước thu hoạch.")
 
                 # B. Chọn hạt giống thích ứng sinh học theo khung giờ tiếp theo
+                goal_tracker.start_subgoal(SubGoalType.SELECT_CROP)
                 in_slot, slot_reason, wait_to_next = self.memory.scenario_engine.is_in_active_time_slot(pid, pname)
                 is_last_session = (cur_sessions >= cap - 1)
                 selected_crop, grow_sec, crop_rationale = SmartCropSelector.select_best_crop(
@@ -330,6 +409,7 @@ class MasterRunner:
                     time_until_next_slot=wait_to_next,
                     is_last_session_today=is_last_session
                 )
+                goal_tracker.complete_subgoal(SubGoalType.SELECT_CROP)
 
                 print("\n" + "-" * 70)
                 print(f" [LỰA CHỌN HẠT GIỐNG THÍCH ỨNG SINH HỌC]")
@@ -344,25 +424,47 @@ class MasterRunner:
                     self.memory.scenario_engine.register_event_feedback(pid, "AFK_DISTRACTION", {"reason": afk_reason})
                     HumanMouse.tab_lingering_pause(min_sec=20.0, max_sec=60.0, reason=afk_reason)
 
-                # D. Gieo hạt nếu vừa thu hoạch xong HOẶC AI phát hiện đất trống
-                if crops_need_harvest or ai_detected_empty or not self.memory.data.get(pid, {}).get("planted_crop"):
-                    print(f"[Runner] Tiến hành gieo '{selected_crop}' lên {len(self.plot_coords)} ô đất...")
+                # D. Gieo hạt nếu vừa thu hoạch xong HOẶC đất trống
+                should_plant = (
+                    crops_need_harvest or
+                    pre_belief.empty_plots_count > 0 or
+                    resumption_plan.get("resumption_mode") == "RESUME_PARTIAL_PLANTING" or
+                    not self.memory.data.get(pid, {}).get("planted_crop")
+                )
+                if should_plant:
+                    goal_tracker.start_subgoal(SubGoalType.PLANT_SEEDS)
+                    plant_plots = self.plot_coords
+                    if resumption_plan.get("resumption_mode") == "RESUME_PARTIAL_PLANTING" and resumption_plan.get("target_plots"):
+                        plant_plots = [self.plot_coords[i] for i in resumption_plan["target_plots"] if i < len(self.plot_coords)]
+
+                    print(f"[Runner] Tiến hành gieo '{selected_crop}' lên {len(plant_plots)} ô đất...")
                     self.crop_mgr.plant_plots(
                         hwnd=hwnd,
                         seed_box_coord=self.seed_box_coord,
-                        plot_coords=self.plot_coords,
+                        plot_coords=plant_plots,
                         profile_id=pid,
                         crop_name=selected_crop,
                         grow_seconds=grow_sec,
                         scenario=scenario,
                         profile_name=pname
                     )
+                    goal_tracker.complete_subgoal(SubGoalType.PLANT_SEEDS)
+                    self.memory.save_checkpoint(pid, asdict(goal_tracker.create_checkpoint(
+                        last_action="PLANT_SEEDS",
+                        metadata={"selected_crop": selected_crop, "grow_sec": grow_sec}
+                    )))
             else:
                 print(f"[Runner] Phiên này '{scenario['real_name']}' không làm ruộng (do phân loại phiên hoặc bỏ sót).")
 
             # 7. THỰC THI CÁC TÁC VỤ PHỤ TRỢ (CHẶT CÂY, MẬT ONG, COMPOSTER) THEO KẾ HOẠCH PHIÊN
             if "TREES" in session_plan["tasks_to_execute"]:
-                FarmMaintenance.chop_trees(hwnd, self.tree_coords, scenario=scenario)
+                if self.memory.is_tree_ready_for_chop(pid):
+                    FarmMaintenance.chop_trees(hwnd, self.tree_coords, scenario=scenario, hits_per_tree=3)
+                    self.memory.record_tree_chop(pid)
+                else:
+                    ready_at = self.memory.data.get(pid, {}).get("trees_ready_at", 0)
+                    rem_min = max(0.0, (ready_at - time.time()) / 60)
+                    print(f"[Runner] Rừng cây đang trong thời gian hồi sinh (còn ~{rem_min:.1f} phút nữa mới mọc lại), bỏ qua chặt cây.")
 
             if "HONEY" in session_plan["tasks_to_execute"]:
                 FarmMaintenance.harvest_honey(hwnd, self.beehive_coords, scenario=scenario)
@@ -372,6 +474,7 @@ class MasterRunner:
 
             # 8. HẬU KIỂM ĐÓNG VÒNG LẶP THỊ GIÁC (CLOSED-LOOP VERIFICATION)
             print("[Runner Verification] Bắt đầu quy trình hậu kiểm trạng thái màn hình khép kín...")
+            goal_tracker.start_subgoal(SubGoalType.POST_VERIFICATION)
             verification = {
                 "status": "UNVERIFIED",
                 "harvest_verified": None,
@@ -388,68 +491,51 @@ class MasterRunner:
                 post_scr = AIVision.capture_screenshot()
 
             if post_scr and hwnd:
-                # A. TIER 1: KIỂM CHỨNG CỤC BỘ BẰNG LOCAL VISION ENGINE (OPENCV/PIXEL)
                 cx, cy, cw, ch = WindowHelper.get_client_rect_on_screen(hwnd)
+                post_local_plots = []
                 if self.plot_coords and cw > 0 and ch > 0:
-                    local_checks = []
-                    # Kiểm tra toàn bộ các plot_coords để có đánh giá đại diện chính xác
                     for (rel_x, rel_y) in self.plot_coords:
                         screen_x, screen_y = cx + rel_x, cy + rel_y
                         p_state = LocalVisionEngine.analyze_plot_state(post_scr, screen_x, screen_y)
-                        local_checks.append(p_state["state"])
+                        post_local_plots.append(p_state)
 
-                    known_plots = [s for s in local_checks if s in ("GROWING", "READY", "EMPTY")]
-                    growing_count = sum(1 for s in local_checks if s == "GROWING")
-                    ready_count = sum(1 for s in local_checks if s == "READY")
-                    empty_count = sum(1 for s in local_checks if s == "EMPTY")
-                    unknown_count = sum(1 for s in local_checks if s not in ("GROWING", "READY", "EMPTY"))
-
-                    verification["tier1_local_verified"] = True
-                    verification["details"].append(
-                        f"LocalVision plots (Total={len(local_checks)}): GROWING={growing_count}, READY={ready_count}, EMPTY={empty_count}, UNKNOWN={unknown_count}"
-                    )
-
-                    if "CROPS" in session_plan["tasks_to_execute"]:
-                        min_confident_plots = max(3, int(len(self.plot_coords) * 0.4))
-                        if len(known_plots) >= min_confident_plots:
-                            if crops_need_harvest:
-                                # Hậu kiểm thu hoạch: Đã gặt hết cây chín nếu ready_count == 0
-                                verification["harvest_verified"] = (ready_count == 0)
-
-                            # Hậu kiểm gieo hạt: Chỉ coi là PASS khi có bằng chứng dương tính (GROWING > 0 và không còn ô đất trống)
-                            if crops_need_harvest or ai_detected_empty or not self.memory.data.get(pid, {}).get("planted_crop"):
-                                if growing_count > 0 and empty_count == 0:
-                                    verification["plant_verified"] = True
-                                elif growing_count > 0 and empty_count > 0:
-                                    verification["plant_verified"] = False  # Vẫn còn ô đất trống bị bỏ sót
-                                elif empty_count > 0 and growing_count == 0:
-                                    verification["plant_verified"] = False
-                                else:
-                                    verification["plant_verified"] = None
-                        else:
-                            verification["details"].append("Mẫu nhận diện ô đất không đủ độ tin cậy để kết luận hậu kiểm (quá nhiều UNKNOWN).")
-
-                # B. TIER 2: KIỂM CHỨNG BẰNG CLOUD VLM (CLAUDE HAIKU 5.5) NẾU CÓ BẬT
+                post_vlm_analysis = {}
                 if self.ai_enabled and self.ai.api_key:
                     post_analysis = self.ai.analyze_screen(post_scr)
                     if isinstance(post_analysis, dict) and post_analysis.get("success") is True:
-                        post_plots = post_analysis.get("plots_summary", {})
-                        pre_plots = analysis.get("plots_summary", {})
-
-                        if pre_plots.get("has_ready_crops"):
-                            if "has_ready_crops" in post_plots:
-                                verification["harvest_verified"] = (post_plots["has_ready_crops"] is False)
-                        if pre_plots.get("has_empty_plots") or crops_need_harvest:
-                            if "has_empty_plots" in post_plots:
-                                verification["plant_verified"] = (post_plots["has_empty_plots"] is False)
-
+                        post_vlm_analysis = post_analysis
                         verification["tier2_vlm_verified"] = True
                     else:
                         err_reason = post_analysis.get("error", "API không phản hồi") if isinstance(post_analysis, dict) else "Phân tích không thành công"
                         verification["tier2_vlm_verified"] = False
                         verification["details"].append(f"Cloud VLM verification: {err_reason}")
 
-                # C. ĐÁNH GIÁ CHỈ SỐ STATUS CHÍNH XÁC (Phân biệt PASS, FAIL, UNVERIFIED)
+                # Xây dựng Trạng thái Niềm tin hậu kỳ (Branch 1 POMDP)
+                post_belief = EvidenceFuser.build_environment_belief(
+                    timestamp=time.time(),
+                    plot_coords=self.plot_coords,
+                    local_plots_analysis=post_local_plots,
+                    vlm_analysis=post_vlm_analysis
+                )
+
+                verification["tier1_local_verified"] = len(post_local_plots) > 0
+                verification["details"].append(
+                    f"Post-action Belief: READY={post_belief.ready_plots_count}, EMPTY={post_belief.empty_plots_count}, GROWING={post_belief.growing_plots_count}, UNKNOWN={post_belief.unknown_plots_count} (Conf={post_belief.overall_confidence:.2f})"
+                )
+
+                # Thẩm định vị từ đóng theo phong cách OSWorld (TaskVerifier)
+                if "CROPS" in session_plan["tasks_to_execute"]:
+                    if crops_need_harvest:
+                        h_res = TaskVerifier.verify_harvest_action(pre_belief, post_belief)
+                        verification["harvest_verified"] = h_res["verified"]
+                        verification["details"].append(f"Harvest Verification: {h_res['status']} ({h_res['reason']})")
+
+                    if should_plant:
+                        p_res = TaskVerifier.verify_plant_action(pre_belief, post_belief)
+                        verification["plant_verified"] = p_res["verified"]
+                        verification["details"].append(f"Plant Verification: {p_res['status']} ({p_res['reason']})")
+
+                # Đánh giá chỉ số status chính xác
                 valid_checks = []
                 for label, v in [("harvest", verification["harvest_verified"]), ("plant", verification["plant_verified"])]:
                     if v is not None:
@@ -457,14 +543,27 @@ class MasterRunner:
 
                 if valid_checks:
                     if all(c is True for c in valid_checks):
-                        verification["status"] = "VERIFIED_SUCCESS"
+                        verification["status"] = VerificationStatus.VERIFIED_SUCCESS.value
                     elif any(c is True for c in valid_checks):
-                        verification["status"] = "VERIFIED_PARTIAL"
+                        verification["status"] = VerificationStatus.VERIFIED_PARTIAL.value
                     else:
-                        verification["status"] = "VERIFIED_FAILED"
+                        verification["status"] = VerificationStatus.VERIFIED_FAILED.value
                 else:
-                    # Tuyệt đối không được gán VERIFIED_SUCCESS khi không có bằng chứng dương tính!
-                    verification["status"] = "UNVERIFIED"
+                    if post_belief.abstention_triggered:
+                        verification["status"] = VerificationStatus.ABSTAIN_UNCERTAIN.value
+                    else:
+                        verification["status"] = "UNVERIFIED"
+
+                if verification["status"] == VerificationStatus.VERIFIED_SUCCESS.value:
+                    goal_tracker.complete_subgoal(SubGoalType.POST_VERIFICATION)
+                    self.memory.clear_checkpoint(pid)
+                    print(f"[Memory for Goals] Hậu kiểm thành công (PASS)! Đã dọn sạch Checkpoint.")
+                else:
+                    print(f"[Memory for Goals] Hậu kiểm chưa đạt tuyệt đối ({verification['status']}), cập nhật Checkpoint trạng thái.")
+                    self.memory.save_checkpoint(pid, asdict(goal_tracker.create_checkpoint(
+                        last_action="POST_VERIFICATION",
+                        metadata={"verification_status": verification["status"]}
+                    )))
 
                 print(f"[Runner Verification Report] Kết quả hậu kiểm: {verification['status']} | Chi tiết: {verification}")
             else:
@@ -579,5 +678,29 @@ SunflowerAutomationRunner = MasterRunner  # Alias tương thích ngược
 
 
 if __name__ == "__main__":
-    runner = MasterRunner()
-    print("MasterRunner da khoi tao thanh cong!")
+    import argparse
+    parser = argparse.ArgumentParser(description="Sunflower Land Autonomous Desktop RPA Master Runner")
+    parser.add_argument("--profile", "-p", type=str, help="Chạy một phiên duy nhất trên profile chỉ định (Tên profile hoặc Profile ID)")
+    parser.add_argument("--config", "-c", type=str, default="config.json", help="Đường dẫn file cấu hình JSON")
+    args = parser.parse_args()
+
+    runner = MasterRunner(config_path=args.config)
+
+    if args.profile:
+        print(f"[MasterRunner] Đang tìm kiếm profile: '{args.profile}'...")
+        target_profile = runner.gpm.find_profile_by_name(args.profile)
+        if not target_profile:
+            # Tìm kiếm mở rộng theo ID hoặc substring tên
+            for p in runner.gpm.get_profiles():
+                if p.get("id") == args.profile or p.get("name", "").lower() == args.profile.lower() or args.profile.lower() in p.get("name", "").lower():
+                    target_profile = p
+                    break
+
+        if not target_profile:
+            print(f"[MasterRunner Error] Không tìm thấy profile nào khớp với: '{args.profile}'!")
+            sys.exit(1)
+
+        print(f"[MasterRunner] Đã tìm thấy profile: '{target_profile.get('name')}' (ID: {target_profile.get('id')})")
+        runner.run_session_on_profile(target_profile)
+    else:
+        runner.start_loop()

@@ -17,6 +17,8 @@ The test suite is built on Python's standard `unittest` framework and located in
 | **`test_fitts_law.py`** | Human mouse kinematics, Fitts' law travel duration, overshoot deceleration, and Bézier curvature bounds. | Pure numerical computation without OS window dependency. |
 | **`test_audit_and_verification.py`** | Closed-loop pre/post verification logic, decoupled `execution_status` vs `verification_status`, perception fail-safe, and cleanup error retention. | Offline JSON validation and mock fixtures. |
 | **`test_farm_memory_concurrency.py`** | Concurrent multi-instance writes without lost updates, dead PID stale-lock recovery, active PID lock respect, atomic tmp cleanup, and working tree secret hygiene. | Multi-instance tempfile testing with process lock validation. |
+| **`test_evidence_engine.py`** | Branch 1: POMDP Bayesian belief fusion, conflict penalty, abstention policy (Captcha/Sync/Uncertainty), and OSWorld post-condition verification. | 100% deterministic, offline mock fixtures. |
+| **`test_goal_tracker.py`** | Branch 2: ACT-R goal hierarchy lifecycle, checkpoint problem state persistence, and discrepancy-based task resumption (Memory for Goals). | 100% deterministic, isolated temporary memory fixtures. |
 
 ---
 
@@ -48,6 +50,12 @@ python -m unittest tests/test_audit_and_verification.py -v
 
 # Concurrency, PID-aware lock & secret hygiene
 python -m unittest tests/test_farm_memory_concurrency.py -v
+
+# Branch 1: Evidence Engine (POMDP Belief & OSWorld Verification)
+python -m unittest tests/test_evidence_engine.py -v
+
+# Branch 2: Goal Tracker (ACT-R & Memory for Goals Resumption)
+python -m unittest tests/test_goal_tracker.py -v
 
 # Secret scanner execution (Rule F)
 python scripts/scan_secrets.py

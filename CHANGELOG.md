@@ -22,9 +22,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `docs/configuration.md`: Configuration schema, environment variables, default settings, and security guidelines.
 - **Profile Name Resolution in GpmAPI (`core/gpm_api.py`)**: Added `find_profile_by_name()`, `start_profile_by_name()`, and `stop_profile_by_name()` to map human-readable profile names directly to GPM UUIDs.
 - **Automated Unit & Live Test Suite (`tests/test_gpm_api.py`)**: Added 7 comprehensive tests covering mock HTTP sessions and live GPM-Login connectivity.
+- **Single-Profile Execution CLI (`run.py`)**: Added `--profile` / `-p` and `--config` / `-c` arguments for targeted on-demand execution on specific profiles.
+- **Automated WindowHelper Tests (`tests/test_window_helper.py`)**: Added unit tests covering interactive desktop switching, PID window detection, and coordinate transformations.
+- **Automated FarmMaintenance Tests (`tests/test_farm_maintenance.py`)**: Added unit tests validating the 3-hit tree chopping invariant, human fumble recovery, and 2-hour tree respawn cooldown (suite expanded to 46 tests).
 - **Web-based GPM Controller & Test Center (`gpm_ui.py`)**: Local web dashboard running on port 18888 for controlling profiles, inspecting CDP tabs, and live testing.
+- **Evidence-Based Perception & Closed-Loop Verification (`core/evidence_engine.py`) [Branch 1]**:
+  - Implemented POMDP belief state modeling (`PlotBelief`, `EnvironmentBeliefState`) based on Kurniawati (2022).
+  - Bayesian multi-source evidence fusion (`EvidenceFuser`) fusing LocalVision (HSV/OpenCV) and Cloud VLM (Claude Haiku 5.5) with conflict penalties.
+  - Explicit Abstention Policy halting automation on Captcha, game syncing, or uncertainty > 50%.
+  - OSWorld-style verifiable predicate engine (`TaskVerifier`, Xie et al., NeurIPS 2024) asserting strict pre/post-conditions on harvest and planting actions.
+- **Goal Hierarchy, Task Resumption & State-Aware Scheduling (`scheduler/goal_tracker.py`) [Branch 2]**:
+  - Implemented ACT-R cognitive goal decomposition (`GoalTracker`, `SubGoal`) following Ritter et al. (WIREs 2019).
+  - Problem state serialization (`TaskCheckpoint`) based on Borst et al. (CHI 2015) problem state bottleneck.
+  - Memory for Goals reconciler (`TaskResumptionManager`, Trafton & Altmann 2003) comparing checkpoints with observed environment belief to resume partial harvests/planting without blind full-cycle restarts.
+- **Atomic Checkpoint Persistence (`scheduler/farm_memory.py`)**: Added `save_checkpoint()`, `get_checkpoint()`, and `clear_checkpoint()` with atomic `.tmp -> os.replace` guarantees.
+- **Automated Unit Tests for Dual Branches (`tests/test_evidence_engine.py`, `tests/test_goal_tracker.py`)**: Added 17 comprehensive unit tests (suite expanded to 65 passing tests) covering belief fusion, conflict penalty, abstention triggers, OSWorld predicates, goal lifecycle, and discrepancy resumption.
 
 ### Changed
+- **3-Hit Tree Chopping Rule & Human Fumble Recovery (`tasks/farm_maintenance.py`)**: Updated `chop_trees` to strictly require exactly 3 successful hits per tree in alignment with Sunflower Land mechanics. If a human miss/fumble click occurs, the agent automatically recovers and delivers compensation strikes until all 3 hits land on the tree.
+- **Tree Respawn Cooldown Tracking (`scheduler/farm_memory.py`, `run.py`)**: Added `record_tree_chop` and `is_tree_ready_for_chop` to track the 2-hour tree recovery window and prevent wasteful clicking on tree stumps.
+- **Windows Multi-Desktop & Sandbox Window Resolution (`core/window_helper.py`)**: `WindowHelper` now automatically attaches threads to `WinSta0\default` via `OpenDesktopW` / `SetThreadDesktop` and uses 64-bit safe `EnumDesktopWindows`, eliminating invisible window enumeration failures across Windows service and IDE sandbox environments.
+- **PID-Based Window Detection & CDP Navigation (`run.py`, `core/window_helper.py`)**: Resolved windows directly by browser Process ID and automatically navigated active tabs to `https://sunflower-land.com/play/` via Chrome DevTools Protocol when newly opened tabs are detected.
 - **Closed-Loop Verification & False-Positive Elimination (`run.py`)**: Refactored post-condition verification to inspect all configured farm plots, require positive evidence of crop growth (`growing_count > 0 and empty_count == 0`), handle partial states, and classify outcomes into `VERIFIED_SUCCESS`, `VERIFIED_PARTIAL`, `VERIFIED_FAILED`, or `UNVERIFIED`.
 - **Perception Failure Fail-Safe (`run.py`)**: Abort immediately with `ABORTED_PERCEPTION_FAILURE` and `VERIFICATION_SKIPPED_NO_SCREENSHOT` if screen capture or AI analysis fails, halting blind mouse operations.
 - **Decoupled Execution and Verification Statuses (`run.py`)**: Audit logging now independently records `execution_status`, `verification_status`, and `cleanup_error`.

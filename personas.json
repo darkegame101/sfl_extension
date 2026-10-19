@@ -49,5 +49,36 @@
       22
     ],
     "created_at": 1791999717.9161143
+  },
+  "19f4ff1b-d3a7-42c9-bdb9-7d685dbacfcf": {
+    "profile_id": "19f4ff1b-d3a7-42c9-bdb9-7d685dbacfcf",
+    "profile_name": "3.Nguyen xuan son",
+    "human_identity": {
+      "real_name": "Đặng Gia Bảo",
+      "gender": "Nam",
+      "age": 33,
+      "occupation": "Mẹ bỉm sữa kinh doanh Online",
+      "workplace": "Tại nhà",
+      "lifestyle_habits": "Ở nhà cả ngày nhưng bận con nhỏ, vào game nhiều lượt ngắn, đang gieo hạt hay bị ngắt quãng vì con khóc.",
+      "temperament": "Cẩn thận & Tỉ mỉ",
+      "behavioral_quirk": "Luôn di chuột chậm rãi, ít khi bấm trượt, thích kiểm tra kỹ từng ô đất.",
+      "base_fumble_rate": 0.03,
+      "base_afk_rate": 0.08
+    },
+    "personality_type": "Cẩn thận & Tỉ mỉ",
+    "mouse_speed_factor": 1.08,
+    "jitter_px": 3,
+    "click_hold_base_ms": 97,
+    "preferred_hours": [
+      7,
+      9,
+      11,
+      13,
+      15,
+      17,
+      20,
+      22
+    ],
+    "created_at": 1792430122.1896577
   }
 }
