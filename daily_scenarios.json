@@ -1,0 +1,51 @@
+{
+  "pid-1": {
+    "date": "2026-10-15",
+    "profile_name": "",
+    "scenario": {
+      "archetype_name": "Ngày đi làm công sở tiêu chuẩn (Office Routine)",
+      "category": "OFFICE_STANDARD",
+      "real_name": "Lê Ngọc Bích",
+      "job": "Nhân viên Ngân hàng (Giao dịch viên)",
+      "age": 26,
+      "today_mood": "Điềm đạm & Giữ nhịp",
+      "daily_narrative": "Lê Ngọc Bích (26 tuổi, Nhân viên Ngân hàng (Giao dịch viên)): Ngày làm việc 8 tiếng bình thường tại văn phòng. Sáng tranh thủ ăn sáng mở 1 lượt, trưa ăn cơm xong nghỉ ngơi mở 1 lượt, tối về nhà sau khi ăn cơm tắm rửa mới ngồi chơi thong thả.",
+      "daily_session_cap": 4,
+      "today_slots": [
+        {
+          "name": "Sáng ăn sáng trước khi đi làm",
+          "start": 6.42,
+          "end": 7.83,
+          "reason": "Vừa ăn sáng uống cà phê vừa ngó farm"
+        },
+        {
+          "name": "Nghỉ trưa tại văn phòng",
+          "start": 11.71,
+          "end": 13.27,
+          "reason": "Ăn cơm trưa xong có 45 phút nghỉ ngơi"
+        },
+        {
+          "name": "Tan tầm vừa về tới nhà",
+          "start": 17.8,
+          "end": 19.14,
+          "reason": "Đi làm về nghỉ chân uống nước"
+        },
+        {
+          "name": "Buổi tối thư giãn Prime Time",
+          "start": 19.94,
+          "end": 23.1,
+          "reason": "Tối rảnh rỗi lướt web chơi game"
+        }
+      ],
+      "forgetting_scale": 1.0,
+      "speed_multiplier": 1.0,
+      "fumble_rate": 0.05,
+      "distraction_prob": 0.12,
+      "daily_distractions": [
+        "Có chuông cửa người giao nước ngọt / giao bình gas",
+        "Mẹ ở quê gọi điện thoại hỏi thăm sức khỏe cuối tuần"
+      ],
+      "created_at": 1791999717.921482
+    }
+  }
+}

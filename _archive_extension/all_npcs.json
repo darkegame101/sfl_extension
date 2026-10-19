@@ -1,0 +1,101 @@
+{
+  "_comment": "Danh sách toàn bộ 16 NPC được lọc từ hệ thống SFL",
+  "npcs": [
+    {
+      "id": "bert",
+      "name": "Bert",
+      "island": "plaza",
+      "blocks": ["B"]
+    },
+    {
+      "id": "corale",
+      "name": "Corale",
+      "island": "beach",
+      "blocks": ["B"]
+    },
+    {
+      "id": "cornwell",
+      "name": "Cornwell",
+      "island": "plaza",
+      "blocks": ["B"]
+    },
+    {
+      "id": "finley",
+      "name": "Finley",
+      "island": "beach",
+      "blocks": ["B"]
+    },
+    {
+      "id": "finn",
+      "name": "Finn",
+      "island": "beach",
+      "blocks": ["B"]
+    },
+    {
+      "id": "jester",
+      "name": "Jester",
+      "island": "kingdom",
+      "blocks": ["B"]
+    },
+    {
+      "id": "miranda",
+      "name": "Miranda",
+      "island": "beach",
+      "blocks": ["B"]
+    },
+    {
+      "id": "old salty",
+      "name": "Old Salty",
+      "island": "beach",
+      "blocks": ["B"]
+    },
+    {
+      "id": "peggy",
+      "name": "Peggy",
+      "island": "plaza",
+      "blocks": ["B"]
+    },
+    {
+      "id": "pete",
+      "name": "Pete",
+      "island": "plaza",
+      "blocks": ["B"]
+    },
+    {
+      "id": "pharaoh",
+      "name": "Pharaoh",
+      "island": "beach",
+      "blocks": ["B"]
+    },
+    {
+      "id": "raven",
+      "name": "Raven",
+      "island": "plaza",
+      "blocks": ["B"]
+    },
+    {
+      "id": "timmy",
+      "name": "Timmy",
+      "island": "plaza",
+      "blocks": ["B"]
+    },
+    {
+      "id": "tinker",
+      "name": "Tinker",
+      "island": "plaza",
+      "blocks": ["B"]
+    },
+    {
+      "id": "tywin",
+      "name": "Tywin",
+      "island": "plaza",
+      "blocks": ["B"]
+    },
+    {
+      "id": "victoria",
+      "name": "Victoria",
+      "island": "kingdom",
+      "blocks": ["B"]
+    }
+  ]
+}

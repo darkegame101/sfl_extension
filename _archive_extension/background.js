@@ -7,20 +7,37 @@ function getUserIP() {
     return fetch("https://api.ipify.org?format=json")
         .then(response => response.json())
         .then(data => data.ip)
-        .catch(error => {
-            console.error("❌ [BACKGROUND]: Lỗi khi lấy IP người dùng:", error);
-            return null;
+        .catch(() => {
+            // API dự phòng nếu ipify bị Adblock chặn
+            return fetch("https://icanhazip.com")
+                .then(res => res.text())
+                .then(text => text.trim())
+                .catch(() => null);
         });
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "CHECK_LICENSE") {
-        const { key } = request;
+        const { key, farmId } = request;
         const queryUrl = `https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/license_v2.json?orderBy="$key"&equalTo="${key}"`;
         const patchUrl = `https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/license_v2/${key}.json`;
         
+        let serverTime = Date.now();
         Promise.all([
-            fetch(queryUrl).then(response => response.json()),
+            fetch(queryUrl, {
+                cache: 'no-store',
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0'
+                }
+            }).then(response => {
+                const dateHeader = response.headers.get('date');
+                if (dateHeader) {
+                    serverTime = new Date(dateHeader).getTime();
+                }
+                return response.json();
+            }),
             getUserIP()
         ])
         .then(([queryData, currentIp]) => {
@@ -30,31 +47,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     last_seen: new Date().toISOString()
                 };
                 
-                // Nếu key chưa có trường active, tự động khởi tạo với true
                 if (data.active === undefined) {
-                    console.log(`📡 [BACKGROUND]: Key chưa có trường active. Tự động khởi tạo: active = true`);
                     patchData.active = true;
                     data.active = true;
                 }
                 
-                // Bắt buộc gửi IP lên Firebase nếu lấy được
                 if (currentIp) {
-                    if (data.ip !== currentIp) {
-                        console.log(`📡 [BACKGROUND]: Phát hiện đổi IP hoặc IP mới. Cập nhật IP: ${currentIp}`);
-                    }
                     patchData.ip = currentIp;
                     data.ip = currentIp;
+                }
+
+                if (farmId) {
+                    patchData.farm_id = farmId;
+                    data.farm_id = farmId;
                 }
                 
                 fetch(patchUrl, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(patchData)
-                })
-                .then(() => console.log(`✅ [BACKGROUND]: Đã cập nhật trạng thái mới (last_seen/ip) lên Firebase.`))
-                .catch(err => console.error("❌ [BACKGROUND]: Lỗi khi cập nhật trạng thái lên Firebase:", err));
+                }).catch(() => {});
             }
-            sendResponse({ success: true, data });
+            sendResponse({ success: true, data, serverTime, currentIp });
         })
         .catch(error => sendResponse({ success: false, error: error.message }));
         
@@ -95,7 +109,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const queryUrl = `https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/license_v2.json?orderBy="$key"&equalTo="${key}"`;
         const patchUrl = `https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/license_v2/${key}.json`;
         
-        fetch(queryUrl)
+        fetch(queryUrl, {
+            cache: 'no-store',
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
+        })
         .then(response => response.json())
         .then(queryData => {
             const data = queryData ? queryData[key] : null;

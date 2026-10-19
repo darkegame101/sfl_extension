@@ -1,0 +1,53 @@
+{
+  "test-profile-1": {
+    "profile_id": "test-profile-1",
+    "profile_name": "",
+    "personality_type": "early_bird",
+    "mouse_speed_factor": 1.24,
+    "jitter_px": 6,
+    "click_hold_base_ms": 87,
+    "daily_session_cap": 6,
+    "preferred_hours": [
+      6,
+      7,
+      8,
+      9,
+      11,
+      12,
+      17,
+      18,
+      20
+    ],
+    "created_at": 1791995409.022102
+  },
+  "pid-1": {
+    "profile_id": "pid-1",
+    "profile_name": "Lê Ngọc Bích",
+    "human_identity": {
+      "real_name": "Lê Ngọc Bích",
+      "gender": "Nữ",
+      "age": 26,
+      "occupation": "Nhân viên Ngân hàng (Giao dịch viên)",
+      "workplace": "Chi nhánh ngân hàng",
+      "lifestyle_habits": "Ban ngày bận tiếp khách không thể đụng vào máy tính, chỉ chơi sáng sớm và tối sau 19h30.",
+      "temperament": "Thư thái & Cân bằng",
+      "behavioral_quirk": "Nhịp thở thao tác đều đặn, thi thoảng rê chuột lướt nhẹ qua xem nông trại.",
+      "base_fumble_rate": 0.05,
+      "base_afk_rate": 0.1
+    },
+    "personality_type": "Thư thái & Cân bằng",
+    "mouse_speed_factor": 0.96,
+    "jitter_px": 5,
+    "click_hold_base_ms": 103,
+    "preferred_hours": [
+      6,
+      7,
+      12,
+      19,
+      20,
+      21,
+      22
+    ],
+    "created_at": 1791999717.9161143
+  }
+}

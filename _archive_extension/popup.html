@@ -112,11 +112,44 @@
             margin-bottom: 5px;
         }
         .footer { padding: 8px 14px; font-size: 10px; opacity: 0.5; text-align: center; }
+
+        /* --- NPC TAB --- */
+        .npc-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 8px; }
+        .preset-btn {
+            padding: 5px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.1); color: white; font-size: 11px;
+            cursor: pointer; font-weight: 600; text-align: center; transition: all 0.2s;
+        }
+        .preset-btn:hover { background: rgba(255,255,255,0.25); }
+
+        #npcContainer {
+            max-height: 180px; overflow-y: auto;
+            background: rgba(0,0,0,0.2); border-radius: 6px;
+            padding: 6px; margin-bottom: 8px;
+        }
+        .npc-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 5px 6px; border-radius: 4px; margin-bottom: 3px;
+            background: rgba(255,255,255,0.05); transition: background 0.15s;
+        }
+        .npc-item:hover { background: rgba(255,255,255,0.12); }
+        .npc-item label {
+            display: flex; align-items: center; gap: 8px; font-size: 12px;
+            cursor: pointer; margin: 0; opacity: 1; text-transform: capitalize; width: 100%;
+        }
+        .npc-item input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: #2ed573; }
+        .badge {
+            font-size: 9px; padding: 2px 5px; border-radius: 4px; font-weight: 600;
+            background: rgba(255,255,255,0.15); text-transform: uppercase;
+        }
+        .badge.block-a { background: #ff4757; color: white; }
+        .badge.block-b { background: #ffa502; color: #1e3c72; }
     </style>
 </head>
 <body>
     <div class="tabs">
         <div class="tab active" data-tab="bot">🤖 Bot</div>
+        <div class="tab" data-tab="npcs">🎯 NPCs</div>
         <div class="tab" data-tab="nodes">🗺️ Nodes</div>
     </div>
 
@@ -127,6 +160,22 @@
             <div><span id="indicator" class="status-indicator"></span><span id="statusText">CHỜ BẮT ĐẦU</span></div>
         </div>
         <button id="startStopBtn" class="btn">🚀 BẮT ĐẦU GIAO HÀNG</button>
+    </div>
+
+    <!-- NPC SELECTOR TAB -->
+    <div id="panel-npcs" class="panel">
+        <div class="section-title">Chọn NPC để chặn giao hàng</div>
+        <div class="npc-presets">
+            <button class="preset-btn" id="presetABtn">🔒 Block A (0)</button>
+            <button class="preset-btn" id="presetBBtn">🔒 Block B (16)</button>
+            <button class="preset-btn" id="selectAllNpcBtn">☑️ Chọn tất cả</button>
+            <button class="preset-btn" id="clearAllNpcBtn">⬜ Bỏ chọn hết</button>
+        </div>
+        <div class="row">
+            <input id="npcSearch" placeholder="🔍 Tìm tên NPC..." />
+        </div>
+        <div id="npcContainer"></div>
+        <button class="small-btn green" id="saveNpcsBtn" style="width:100%;padding:9px;font-size:13px;margin-top:4px;">💾 Lưu NPC chọn</button>
     </div>
 
     <!-- NODE EDITOR TAB -->

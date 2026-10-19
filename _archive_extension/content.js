@@ -50,17 +50,26 @@ function activateAudioHack() {
 injectSilentAudioHack();
 
 
-// Tải danh sách NPC bị chặn từ file blocked_npcs.json
+// Tải danh sách NPC bị chặn (ưu tiên từ chrome.storage.local, fallback về blocked_npcs.json)
 async function loadBlockedNPCs() {
     try {
+        const stored = await new Promise(res => chrome.storage.local.get(['sfl_selected_blocked_npcs'], res));
+        if (stored && Array.isArray(stored.sfl_selected_blocked_npcs)) {
+            const userList = stored.sfl_selected_blocked_npcs.map(n => n.toLowerCase().trim());
+            blockedNPCs_A = userList;
+            blockedNPCs_B = userList;
+            console.log(`🚫 [BLOCKED]: Đã tải danh sách NPC tùy chỉnh từ UI (${userList.length} NPC)`);
+            return;
+        }
+
         const url = chrome.runtime.getURL('blocked_npcs.json');
         const response = await fetch(url);
         const data = await response.json();
         blockedNPCs_A = (data.blocked_a || []).map(n => n.toLowerCase().trim());
         blockedNPCs_B = (data.blocked_b || []).map(n => n.toLowerCase().trim());
-        console.log(`🚫 [BLOCKED]: Đã tải danh sách chặn A (${blockedNPCs_A.length} NPC) và B (${blockedNPCs_B.length} NPC)`);
+        console.log(`🚫 [BLOCKED]: Đã tải danh sách chặn mặc định A (${blockedNPCs_A.length} NPC) và B (${blockedNPCs_B.length} NPC)`);
     } catch (e) {
-        console.warn('⚠️ [BLOCKED]: Không thể tải hoặc sai định dạng blocked_npcs.json:', e);
+        console.warn('⚠️ [BLOCKED]: Không thể tải danh sách NPC bị chặn:', e);
         blockedNPCs_A = [];
         blockedNPCs_B = [];
     }
@@ -288,6 +297,37 @@ async function loadMemory() {
     });
 }
 
+async function sendTelemetry(activeProfile) {
+    try {
+        if (!document.body?.dataset?.sflFarmId || !window.currentValidatedIp) {
+            return false;
+        }
+
+        const data = {
+            ip: window.currentValidatedIp,
+            farmId: document.body.dataset.sflFarmId,
+            hwid: userHWID,
+            profile: activeProfile,
+            lastSeen: new Date().toISOString()
+        };
+
+        const path = `analytics/${licenseKey}/profiles/${activeProfile}.json`;
+        await fetch(`https://sfl-d26a3-default-rtdb.asia-southeast1.firebasedatabase.app/${path}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+    } catch (e) {
+        console.error("❌ [ANALYTICS]: Lỗi gửi telemetry:", e);
+    }
+}
+
+function syncRunningStateToDOM() {
+    if (document.body) {
+        document.body.dataset.isRunning = isRunning;
+    }
+}
+
 // Lưu toàn bộ trạng thái sống (Persistent State Machine)
 function saveMemory() {
     chrome.storage.local.set({
@@ -339,20 +379,28 @@ async function checkLicenseRemote() {
     const key = licenseKey || "";
     if (!key) return false;
 
-    console.log(`📡 [LICENSE]: Đang xác thực Key [${key}] qua Background...`);
     const hwid = await getUniqueHWID();
 
-    try {
-        // Gửi tin nhắn tới Background để check GET
-        const response = await new Promise(r => chrome.runtime.sendMessage({ action: "CHECK_LICENSE", key }, r));
+    // Lấy Farm ID nếu có (không ép buộc đợi 15s ở bước nhập Key nữa)
+    const farmId = document.body.dataset.sflFarmId || null;
 
+    try {
+        const response = await new Promise(r => chrome.runtime.sendMessage({ action: "CHECK_LICENSE", key, farmId }, r));
+
+        // Nếu Firebase phản hồi lỗi hoặc không có IP thì âm thầm lưu trạng thái để chặn khi chạy bot
         if (!response || !response.success) {
-            console.error("❌ License Check Error:", response?.error || "Unknown error");
+            licenseStatus = "SERVER_ERROR";
             return false;
         }
+        
+        // Lưu IP vào biến toàn cục để kiểm tra khi bot thực sự chạy
+        window.currentValidatedIp = response.currentIp;
 
         const data = response.data;
-        if (!data) return false;
+        if (!data) {
+            licenseStatus = "NOT_FOUND";
+            return false;
+        }
 
         // 1. Kiểm tra trạng thái
         if (data.status !== "active" || data.active === false) {
@@ -360,26 +408,28 @@ async function checkLicenseRemote() {
             return false;
         }
 
-        // 2. Kiểm tra ngày hết hạn
+        // 2. Kiểm tra ngày hết hạn (Dùng giờ chuẩn từ Server Firebase)
+        const currentServerTime = response.serverTime || Date.now();
+        const serverDate = new Date(currentServerTime);
         const exp = new Date(data.expiration);
-        if (exp < new Date()) {
+        
+        // Cài đặt giờ về cuối ngày (23:59:59) của ngày hết hạn
+        exp.setHours(23, 59, 59, 999);
+        
+        if (exp < serverDate) {
             licenseStatus = "EXPIRED";
             return false;
         }
 
         // 3. HWID Binding
         if (!data.hwid) {
-            console.log("⚡ [LICENSE]: Key chưa kích hoạt. Đang gán HWID vào Key...");
-            // Gửi lệnh kích hoạt (gán HWID)
             await new Promise(r => chrome.runtime.sendMessage({ action: "ACTIVATE_LICENSE", key, hwid }, r));
 
             isLicensed = true;
             licenseStatus = "VALID";
             return true;
         } else if (data.hwid !== hwid) {
-            // Máy khác đang dùng Key này
             licenseStatus = "MISMATCH";
-            console.error("❌ [SECURITY]: Cảnh báo! Key này đã được dùng ở máy khác.");
             return false;
         }
 
@@ -388,7 +438,6 @@ async function checkLicenseRemote() {
         licenseStatus = "VALID";
         return true;
     } catch (e) {
-        console.error("License Check Error:", e);
         licenseStatus = "SERVER_ERROR";
         return false;
     }
@@ -424,7 +473,7 @@ function renderLicenseModal() {
         </div>
     `;
 
-    document.body.appendChild(modal);
+    safeAppendToDOM(modal);
 
     document.getElementById('activate_btn').onclick = async () => {
         const key = document.getElementById('license_input').value.trim();
@@ -1731,6 +1780,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             userNodeGraphs = r.sfl_node_graphs || {};
             console.log('🔄 [GRAPH]: Đã reload đồ thị từ storage!', Object.keys(userNodeGraphs));
         });
+    } else if (request.action === "reload_blocked_npcs") {
+        loadBlockedNPCs();
     }
 });
 
@@ -1768,7 +1819,7 @@ async function loop() {
         
         // Theo dõi và cập nhật Farm ID lên Firebase
         const farmIdInterval = setInterval(() => {
-            const farmId = document.body.dataset.sflFarmId;
+            const farmId = document.body?.dataset?.sflFarmId;
             if (farmId && licenseKey) {
                 clearInterval(farmIdInterval); // Dừng kiểm tra sau khi lấy được ID
                 console.log(`📡 [LICENSE]: Phát hiện Farm ID (${farmId}). Đang cập nhật lên Firebase...`);
@@ -1934,8 +1985,20 @@ function injectPremiumUI() {
         renderInternalUI(ui, isCollapsed);
     });
 
-    document.body.appendChild(ui);
+    safeAppendToDOM(ui);
     initUIEvents();
+}
+
+function safeAppendToDOM(element) {
+    if (document.body) {
+        document.body.appendChild(element);
+    } else if (document.documentElement) {
+        document.documentElement.appendChild(element);
+    } else {
+        window.addEventListener('DOMContentLoaded', () => {
+            (document.body || document.documentElement).appendChild(element);
+        });
+    }
 }
 
 function renderInternalUI(ui, isCollapsed) {
@@ -2040,6 +2103,13 @@ async function switchAndToggleBot(profile) {
             renderLicenseModal();
             return;
         }
+        
+        // --- ĐIỀU KIỆN BẮT BUỘC: CHỈ CHO CHẠY KHI ĐÃ CÓ FARM ID VÀ IP ---
+        if (!document.body.dataset.sflFarmId || !window.currentValidatedIp) {
+            alert("Lỗi: SERVER_ERROR"); // Báo lỗi chung chung theo yêu cầu
+            return;
+        }
+
         const wasRunning = isRunning;
         activeProfile = profile;
         isAutoEnabled = true;
@@ -2056,7 +2126,7 @@ async function switchAndToggleBot(profile) {
     }
     updateAutoBtnUI();
     // Đồng bộ trạng thái ra Dataset để Bridge UI (đèn báo) cập nhật theo
-    document.body.dataset.isRunning = isRunning;
+    if (document.body) document.body.dataset.isRunning = isRunning;
 }
 
 async function toggleBotLogic() {

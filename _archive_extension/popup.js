@@ -41,6 +41,125 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // ─── NPC SELECTOR TAB ───────────────────────────────────────
+    let allNpcList = [];
+    let selectedBlockedNpcs = new Set();
+
+    // Default presets
+    const PRESET_A = [];
+    const PRESET_B = ["bert", "raven", "pete", "tywin", "cornwell", "tinker", "finley", "finn", "pharaoh", "miranda", "jester", "timmy", "old salty", "corale", "victoria", "peggy"];
+
+    // Fetch all_npcs.json
+    fetch(chrome.runtime.getURL('all_npcs.json'))
+        .then(res => res.json())
+        .then(data => {
+            allNpcList = data.npcs || [];
+            initNpcTab();
+        })
+        .catch(err => {
+            console.warn('Fallback loading all_npcs.json', err);
+            allNpcList = PRESET_B.map(id => ({ id, name: id.charAt(0).toUpperCase() + id.slice(1), island: 'all', blocks: PRESET_A.includes(id) ? ['A', 'B'] : ['B'] }));
+            initNpcTab();
+        });
+
+    function initNpcTab() {
+        chrome.storage.local.get(['sfl_selected_blocked_npcs'], result => {
+            if (result.sfl_selected_blocked_npcs && Array.isArray(result.sfl_selected_blocked_npcs)) {
+                selectedBlockedNpcs = new Set(result.sfl_selected_blocked_npcs.map(n => n.toLowerCase().trim()));
+            } else {
+                selectedBlockedNpcs = new Set(PRESET_B); // Default to Preset B
+            }
+            renderNpcList();
+        });
+    }
+
+    function renderNpcList(filterText = '') {
+        const container = document.getElementById('npcContainer');
+        if (!container) return;
+        container.innerHTML = '';
+
+        const query = filterText.toLowerCase().trim();
+        const filtered = allNpcList.filter(npc => npc.name.toLowerCase().includes(query) || npc.id.toLowerCase().includes(query) || (npc.island && npc.island.toLowerCase().includes(query)));
+
+        if (filtered.length === 0) {
+            container.innerHTML = '<div style="opacity:0.5;font-size:11px;padding:8px;text-align:center;">Không tìm thấy NPC nào.</div>';
+            return;
+        }
+
+        filtered.forEach(npc => {
+            const isChecked = selectedBlockedNpcs.has(npc.id.toLowerCase());
+            const item = document.createElement('div');
+            item.className = 'npc-item';
+
+            const blocksBadge = (npc.blocks || []).map(b => `<span class="badge block-${b.toLowerCase()}">${b}</span>`).join(' ');
+            const islandBadge = npc.island ? `<span class="badge" style="opacity:0.7">${npc.island}</span>` : '';
+
+            item.innerHTML = `
+                <label>
+                    <input type="checkbox" value="${npc.id}" ${isChecked ? 'checked' : ''} />
+                    <span><b>${npc.name}</b></span>
+                </label>
+                <div style="display:flex;gap:4px;align-items:center;">
+                    ${islandBadge}
+                    ${blocksBadge}
+                </div>
+            `;
+
+            const chk = item.querySelector('input');
+            chk.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    selectedBlockedNpcs.add(npc.id.toLowerCase());
+                } else {
+                    selectedBlockedNpcs.delete(npc.id.toLowerCase());
+                }
+            });
+
+            container.appendChild(item);
+        });
+    }
+
+    // Search filter listener
+    const npcSearch = document.getElementById('npcSearch');
+    if (npcSearch) {
+        npcSearch.addEventListener('input', (e) => renderNpcList(e.target.value));
+    }
+
+    // Preset Buttons
+    document.getElementById('presetABtn')?.addEventListener('click', () => {
+        selectedBlockedNpcs = new Set(PRESET_A);
+        renderNpcList(npcSearch ? npcSearch.value : '');
+    });
+
+    document.getElementById('presetBBtn')?.addEventListener('click', () => {
+        selectedBlockedNpcs = new Set(PRESET_B);
+        renderNpcList(npcSearch ? npcSearch.value : '');
+    });
+
+    document.getElementById('selectAllNpcBtn')?.addEventListener('click', () => {
+        allNpcList.forEach(n => selectedBlockedNpcs.add(n.id.toLowerCase()));
+        renderNpcList(npcSearch ? npcSearch.value : '');
+    });
+
+    document.getElementById('clearAllNpcBtn')?.addEventListener('click', () => {
+        selectedBlockedNpcs.clear();
+        renderNpcList(npcSearch ? npcSearch.value : '');
+    });
+
+    // Save Selection
+    document.getElementById('saveNpcsBtn')?.addEventListener('click', () => {
+        const blockedArr = Array.from(selectedBlockedNpcs);
+        chrome.storage.local.set({ sfl_selected_blocked_npcs: blockedArr }, () => {
+            const btn = document.getElementById('saveNpcsBtn');
+            const originalText = btn.textContent;
+            btn.textContent = `✅ Đã lưu (${blockedArr.length} NPC)!`;
+            setTimeout(() => { btn.textContent = originalText; }, 1500);
+
+            chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+                if (tabs[0]) chrome.tabs.sendMessage(tabs[0].id, { action: 'reload_blocked_npcs' });
+            });
+        });
+    });
+
     // ─── NODE EDITOR TAB ────────────────────────────────────────
     const islandSelect = document.getElementById('islandSelect');
     let graphs = {}; // { plaza: { nodes: {id: {x,y}}, edges: [[a,b],...] }, ... }

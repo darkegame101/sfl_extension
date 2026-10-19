@@ -1,5 +1,0 @@
-node generate_keys.js tao 1 key
-
-hoac 
-
-.\generate_plus.ps1     tao nhieu key

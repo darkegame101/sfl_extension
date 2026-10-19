@@ -1,0 +1,42 @@
+{
+  "gpm_api": {
+    "base_url": "http://127.0.0.1:19995",
+    "group_filter": null
+  },
+  "ai_vision": {
+    "enabled": true,
+    "api_key": "sk-bee-0993ed597ecbd01f8d36fe6c6b0142a36e52affc9d9f457b7f41bd1c76cbed29",
+    "base_url": "https://platform.beeknoee.com/v1",
+    "model_id": "bee-tok/claude-haiku-5-5"
+  },
+  "scheduler": {
+    "sleep_start_hour": 1,
+    "sleep_end_hour": 6,
+    "inter_profile_delay_min": 25,
+    "inter_profile_delay_max": 50,
+    "coffee_break_every_n_profiles": 5
+  },
+  "farming": {
+    "default_crop": "Sunflower",
+    "default_grow_seconds": 60,
+    "action_sync_delay_min": 0.45,
+    "action_sync_delay_max": 0.85,
+    "seed_box_coord": [400, 560],
+    "plot_coords": [
+      [310, 270], [350, 270], [390, 270],
+      [310, 310], [350, 310], [390, 310],
+      [310, 350], [350, 350], [390, 350]
+    ],
+    "tree_coords": [
+      [220, 210], [260, 190], [520, 220]
+    ],
+    "beehive_coords": [
+      [180, 360], [210, 360]
+    ],
+    "composter_coord": [480, 420]
+  },
+  "reproducibility": {
+    "seed": null,
+    "audit_logging": true
+  }
+}

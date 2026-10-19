@@ -4,21 +4,7 @@
     "Tên phải viết THƯỜNG, khớp với tên trong game (ví dụ: 'pete', 'old salty', 'pumpkin\\' pete').",
     "Sau khi chỉnh sửa file này, nhấn Reload Extension để áp dụng."
   ],
-  "blocked_a": [
-    "bert",
-    "raven",
-    "pete",
-    "tywin",
-    "cornwell",
-    "tinker",
-    "finley",
-    "finn",
-    "pharaoh",
-    "miranda",
-    "jester",
-    "timmy"
-    
-  ],
+  "blocked_a": [],
   "blocked_b": [
     "bert",
     "raven",
